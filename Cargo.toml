@@ -4,3 +4,4 @@ version = "0.1.0"
 authors = ["steven.liatti <steven.liatti@etu.hesge.ch>"]
 
 [dependencies]
+tag_manager = { path = "../tag_manager" }
