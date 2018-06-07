@@ -1,47 +1,38 @@
-use std::io;
-use std::fs;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry::{Vacant, Occupied};
 
 extern crate tag_manager;
-
-fn visit_dirs(dir: &Path, level: u32) -> io::Result<()> {
-    let next_level = level + 1;
-    if dir.is_dir() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            for _ in 0..level {
-                print!("    ");
-            }
-            if path.is_dir() {
-                println!("dir {:?}", path);
-                visit_dirs(&path, next_level)?;
-            }
-            else {
-                println!("file {:?}", path);
-            }
-            let option = tag_manager::get_tags(dir.to_str().unwrap());
-            match option {
-                Some(tags) => {
-                    for _ in 0..level {
-                        print!("    ");
-                    }
-                    println!("Tag(s) {:?} for file {:?}", tags, path);
-                },
-                None => ()
-            }
-        }
-    }
-    Ok(())
-}
+extern crate walkdir;
+use walkdir::WalkDir;
 
 fn main() {
     // mkdir -p a/b/c
     // touch fileA fileB
-    let path = Path::new("a");
 
-    match visit_dirs(path, 0) {
-        Ok(_) => (),
-        Err(err) => println!("error : {}", err)
+    let mut map : HashMap<String, HashSet<String>> = HashMap::new();
+
+    for entry in WalkDir::new("a").into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path().display().to_string();
+        println!("{}", path);
+        let option = tag_manager::get_tags(&path);
+        match option {
+            Some(tags) => {
+                for tag in tags {
+                    match map.entry(tag) {
+                        Vacant(entry) => {
+                            let mut set = HashSet::new();
+                            set.insert(path.clone());
+                            entry.insert(set);
+                        },
+                        Occupied(mut entry) => {
+                            entry.get_mut().insert(path.clone());
+                        }
+                    }
+                }
+            },
+            None => ()
+        } 
     }
+
+    println!("map {:?}", map);
 }
