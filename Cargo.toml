@@ -7,3 +7,4 @@ authors = ["steven.liatti <steven.liatti@etu.hesge.ch>"]
 tag_manager = { path = "../tag_manager" }
 walkdir = "2"
 petgraph = "0.4.12"
+notify = "4.0.0"
