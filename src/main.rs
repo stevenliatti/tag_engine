@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::hash_set::Difference;
+use std::collections::hash_map::RandomState;
 use std::io::prelude::*;
 use std::fs::File;
 use std::process::Command;
@@ -32,6 +34,8 @@ struct Nil;
 impl Nil {
     fn new() -> Self { Self {} }
 }
+
+// TODO: check every call to unwrap()
 
 fn get_node_index(root_index : NodeIndex, graph : &Graph<Node, Nil>, path : String) -> NodeIndex {
     let mut path_vec : Vec<&str> = path.split('/').collect();
@@ -108,17 +112,29 @@ fn get_tags(graph : &Graph<Node, Nil>, tag_index : NodeIndex) -> HashSet<String>
     tags
 }
 
-fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
+fn add_tags(tags_to_add : Difference<String, RandomState>, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut Graph<Node, Nil>, entry_index : NodeIndex) {
-    let existent_tags = get_tags(graph, entry_index);
-    let fresh_tags = match tag_manager::get_tags(&path) {
-        Some(tags) => tags,
-        None => HashSet::new()
-    };
+    for tag in tags_to_add {
+        match tags_index.entry(tag.clone()) {
+            Vacant(entry) => {
+                let new_node_tag = graph.add_node(Node::Tag(tag.clone()));
+                entry.insert(new_node_tag);
+                graph.add_edge(entry_index, new_node_tag, Nil::new());
+                graph.add_edge(new_node_tag, entry_index, Nil::new());
+            },
+            Occupied(entry) => {
+                let &tag_index = entry.get();
+                if !graph.contains_edge(tag_index, entry_index) {
+                    graph.add_edge(entry_index, tag_index, Nil::new());
+                    graph.add_edge(tag_index, entry_index, Nil::new());
+                }
+            }
+        }
+    }
+}
 
-    let tags_to_remove = existent_tags.difference(&fresh_tags);
-    let tags_to_add = fresh_tags.difference(&existent_tags);
-
+fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &mut HashMap<String, NodeIndex>,
+    graph : &mut Graph<Node, Nil>, entry_index : NodeIndex) {
     for tag in tags_to_remove {
         match tags_index.entry(tag.clone()) {
             Occupied(entry) => {
@@ -141,24 +157,17 @@ fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
             graph.remove_node(tag_index);
         }
     }
+}
 
-    for tag in tags_to_add {
-        match tags_index.entry(tag.clone()) {
-            Vacant(entry) => {
-                let new_node_tag = graph.add_node(Node::Tag(tag.clone()));
-                entry.insert(new_node_tag);
-                graph.add_edge(entry_index, new_node_tag, Nil::new());
-                graph.add_edge(new_node_tag, entry_index, Nil::new());
-            },
-            Occupied(entry) => {
-                let &tag_index = entry.get();
-                if !graph.contains_edge(tag_index, entry_index) {
-                    graph.add_edge(entry_index, tag_index, Nil::new());
-                    graph.add_edge(tag_index, entry_index, Nil::new());
-                }
-            }
-        }
-    }
+fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
+    graph : &mut Graph<Node, Nil>, entry_index : NodeIndex) {
+    let existent_tags = get_tags(graph, entry_index);
+    let fresh_tags = match tag_manager::get_tags(&path) {
+        Some(tags) => tags,
+        None => HashSet::new()
+    };
+    remove_tags(existent_tags.difference(&fresh_tags), tags_index, graph, entry_index);
+    add_tags(fresh_tags.difference(&existent_tags), tags_index, graph, entry_index);
 }
 
 fn rename_tag() {
