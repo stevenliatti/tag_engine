@@ -303,7 +303,7 @@ fn main() {
     let mut file = File::create(output_name).expect("file create");
     let graph_dot = format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
     file.write(graph_dot.as_bytes()).expect("file write");
-    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-otest.jpg", output_name]).output().expect("exec");
+    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-ograph.jpg", output_name]).output().expect("exec");
 
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_secs(1)).expect("watcher");
@@ -320,7 +320,7 @@ fn main() {
                     let mut file = File::create(output_name).expect("file create");
                     let graph_dot = format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
                     file.write(graph_dot.as_bytes()).expect("file write");
-                    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-otest.jpg", output_name]).output().expect("exec");
+                    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-ograph.jpg", output_name]).output().expect("exec");
                 // }
                 // i = i + 1;
             },
