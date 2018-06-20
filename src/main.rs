@@ -139,8 +139,23 @@ fn move_entry(root_index : NodeIndex, entry_index : NodeIndex, graph : &mut MyGr
     }
 }
 
-// fn remove_file() {}
-// fn remove_directory() {}
+fn entries_to_remove(entry_index : NodeIndex, graph : &MyGraph,
+    entries_index : &mut Vec<NodeIndex>, check_tags_index : &mut Vec<NodeIndex>) {
+    entries_index.push(entry_index);
+    for neighbor_index in graph.neighbors_directed(entry_index, Direction::Outgoing) {
+        match graph.node_weight(neighbor_index) {
+            Some(data) => {
+                match data.kind {
+                    NodeKind::Directory =>
+                        entries_to_remove(neighbor_index, graph, entries_index, check_tags_index),
+                    NodeKind::File => entries_index.push(neighbor_index),
+                    NodeKind::Tag => check_tags_index.push(neighbor_index)
+                }
+            },
+            None => ()
+        }
+    }
+}
 
 fn get_tags(graph : &MyGraph, tag_index : NodeIndex) -> HashSet<String> {
     let mut tags = HashSet::new();
@@ -268,22 +283,49 @@ fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeInde
     graph : &mut MyGraph, root_index : NodeIndex, base : String) {
     match event {
         Create(path) => {
-            let mut path = path.as_path().to_str().expect("dispatcher, create, local").to_string();
+            let mut path = path.as_path().to_str().expect("dispatcher, create, path").to_string();
             let local = local_path(&mut path, base.clone());
             println!("create : {:?}", local);
             make_subgraph(root_index, tags_index, graph, local, base.clone());
         },
         Chmod(path) => {
-            let mut path = path.as_path().to_str().expect("dispatcher, chmod, local").to_string();
+            let mut path = path.as_path().to_str().expect("dispatcher, chmod, path").to_string();
             let local = local_path(&mut path.clone(), base);
             println!("chmod : {:?}", local);
             let entry_index = get_node_index(root_index, graph, local);
             update_tags(path, tags_index, graph, entry_index);
         },
-        Remove(path) => println!("remove : {:?}", path),
+        Remove(path) => {
+            let mut path = path.as_path().to_str().expect("dispatcher, remove, path").to_string();
+            let local = local_path(&mut path.clone(), base);
+            println!("remove : {:?}", local);
+            let entry_index = get_node_index(root_index, graph, local);
+            let mut entries_index = Vec::new();
+            let mut check_tags_index = Vec::new();
+            entries_to_remove(entry_index, graph, &mut entries_index, &mut check_tags_index);
+            entries_index.sort();
+            for index in entries_index.into_iter().rev() {
+                graph.remove_node(index);
+            }
+            // TODO: check tags here
+            // purge_tags, retains index in check_tags doesn't work, indexes are shifted
+            // for tag_index in tags_index {
+            //     let (tag_index, _) = tag_index;
+            //     match *tags_index.entry(tag_index.clone()) {
+            //         Occupied(entry) => {
+            //             let &tag_index = entry.get();
+            //             if graph.edges(tag_index).count() == 0 {
+            //                 entry.remove();
+            //                 graph.remove_node(tag_index);
+            //             }
+            //         },
+            //         Vacant(_) => ()
+            //     }
+            // }
+        },
         Rename(old_path, new_path) => {
-            let mut old_path = old_path.as_path().to_str().expect("dispatcher, chmod, local").to_string();
-            let new_path = new_path.as_path().to_str().expect("dispatcher, chmod, local").to_string();
+            let mut old_path = old_path.as_path().to_str().expect("dispatcher, rename, old_path").to_string();
+            let new_path = new_path.as_path().to_str().expect("dispatcher, rename, new_path").to_string();
             let old_local = local_path(&mut old_path.clone(), base.clone());
             let new_local = local_path(&mut new_path.clone(), base.clone());
             println!("rename, old_path : {:?}, new_path : {:?}", old_local, new_local);
