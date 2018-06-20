@@ -24,22 +24,40 @@ use std::sync::mpsc::channel;
 use std::time::Duration;
 
 #[derive(Debug)]
-enum Node {
-    Tag(String),
-    File(String),
-    Directory(String)
-}
-
-#[derive(Debug)]
 struct Nil;
 impl Nil {
     fn new() -> Self { Self {} }
 }
 
+#[derive(Debug)]
+enum NodeKind {
+    Tag,
+    File,
+    Directory
+}
+
+#[derive(Debug)]
+struct Node {
+    name : String,
+    kind : NodeKind
+}
+
+impl Node {
+    fn new(name : String, kind : NodeKind) -> Self {
+        Self { name : name, kind : kind }
+    }
+
+    fn set_name(&mut self, name : String) {
+        self.name = name;
+    }
+}
+
+type MyGraph = Graph<Node, Nil>;
+
 // TODO: check every call to expect()
 
 fn make_subgraph(root_index : NodeIndex, tags_index : &mut HashMap<String, NodeIndex>,
-    graph : &mut Graph<Node, Nil>, local_path : String, base_path : String) {
+    graph : &mut MyGraph, local_path : String, base_path : String) {
     let mut path_vec : Vec<&str> = local_path.split('/').collect();
     let mut parent_index = root_index;
     let mut found = false;
@@ -55,9 +73,9 @@ fn make_subgraph(root_index : NodeIndex, tags_index : &mut HashMap<String, NodeI
             if !found {
                 let new_node = if metadata(build_path.clone())
                     .expect("make_subgraph, new_node, metadata").file_type().is_dir() {
-                    Node::Directory(String::from(entry))
+                    Node::new(String::from(entry), NodeKind::Directory)
                 }
-                else { Node::File(String::from(entry)) };
+                else { Node::new(String::from(entry), NodeKind::File) };
                 let new_node = graph.add_node(new_node);
                 graph.add_edge(parent_index, new_node, Nil::new());
                 update_tags(build_path.clone(), tags_index, graph, new_node);
@@ -67,13 +85,13 @@ fn make_subgraph(root_index : NodeIndex, tags_index : &mut HashMap<String, NodeI
     }
 }
 
-fn find_parent(graph : &Graph<Node, Nil>, index : NodeIndex, entry : &str, found : &mut bool) -> NodeIndex {
+fn find_parent(graph : &MyGraph, index : NodeIndex, entry : &str, found : &mut bool) -> NodeIndex {
     for neighbor_index in graph.neighbors(index) {
         match graph.node_weight(neighbor_index) {
             Some(data) => {
-                match data {
-                    &Node::File(ref name) | &Node::Directory(ref name) => {
-                        if String::from(entry) == name.to_string() {
+                match data.kind {
+                    NodeKind::File | NodeKind::Directory => {
+                        if String::from(entry) == data.name {
                             *found = true;
                             return neighbor_index;
                         }
@@ -88,15 +106,13 @@ fn find_parent(graph : &Graph<Node, Nil>, index : NodeIndex, entry : &str, found
     index
 }
 
-fn move_entry(root_index : NodeIndex, entry_index : NodeIndex, graph : &mut Graph<Node, Nil>, new_path : String) {
-    // let mut path_vec : Vec<&str> = old_path.split('/').collect();
-    // let entry = path_vec.pop().expect("move_entry, entry").to_string();
+fn move_entry(root_index : NodeIndex, entry_index : NodeIndex, graph : &mut MyGraph, new_path : String) {
     let mut parent_index = entry_index;
     for neighbor_index in graph.neighbors_directed(entry_index, Direction::Incoming) {
         match graph.node_weight(neighbor_index) {
             Some(data) => {
-                match data {
-                    &Node::Directory(_) => {
+                match data.kind {
+                    NodeKind::Directory => {
                         parent_index = neighbor_index;
                         break;
                     },
@@ -106,25 +122,33 @@ fn move_entry(root_index : NodeIndex, entry_index : NodeIndex, graph : &mut Grap
             None => ()
         }
     }
-    let edge = graph.find_edge(parent_index, entry_index);
-    match edge {
-        Some(edge_index) => { graph.remove_edge(edge_index); },
-        None => ()
+    let new_parent_index = get_node_index(root_index, graph, new_path.clone());
+    if parent_index == new_parent_index {
+        let mut path_vec : Vec<&str> = new_path.split('/').collect();
+        let new_name = path_vec.pop().expect("move_entry, path_vec.pop()").to_string();
+        let node = graph.node_weight_mut(entry_index).expect("move_entry, graph.node_weight_mut");
+        node.set_name(new_name);
     }
-    let new_parent_index = get_node_index(root_index, graph, new_path);
-    graph.add_edge(new_parent_index, entry_index, Nil::new());
+    else {
+        let edge = graph.find_edge(parent_index, entry_index);
+        match edge {
+            Some(edge_index) => { graph.remove_edge(edge_index); },
+            None => ()
+        }
+        graph.add_edge(new_parent_index, entry_index, Nil::new());
+    }
 }
 
 // fn remove_file() {}
 // fn remove_directory() {}
 
-fn get_tags(graph : &Graph<Node, Nil>, tag_index : NodeIndex) -> HashSet<String> {
+fn get_tags(graph : &MyGraph, tag_index : NodeIndex) -> HashSet<String> {
     let mut tags = HashSet::new();
     for neighbor_index in graph.neighbors_directed(tag_index, Direction::Incoming) {
         match graph.node_weight(neighbor_index) {
             Some(data) => {
-                match data {
-                    &Node::Tag(ref name) => { tags.insert(name.to_string()); },
+                match data.kind {
+                    NodeKind::Tag => { tags.insert(data.name.clone()); },
                     _ => ()
                 }
             },
@@ -135,11 +159,11 @@ fn get_tags(graph : &Graph<Node, Nil>, tag_index : NodeIndex) -> HashSet<String>
 }
 
 fn add_tags(tags_to_add : Difference<String, RandomState>, tags_index : &mut HashMap<String, NodeIndex>,
-    graph : &mut Graph<Node, Nil>, entry_index : NodeIndex) {
+    graph : &mut MyGraph, entry_index : NodeIndex) {
     for tag in tags_to_add {
         match tags_index.entry(tag.clone()) {
             Vacant(entry) => {
-                let new_node_tag = graph.add_node(Node::Tag(tag.clone()));
+                let new_node_tag = graph.add_node(Node::new(tag.clone(), NodeKind::Tag));
                 entry.insert(new_node_tag);
                 graph.add_edge(entry_index, new_node_tag, Nil::new());
                 graph.add_edge(new_node_tag, entry_index, Nil::new());
@@ -156,7 +180,7 @@ fn add_tags(tags_to_add : Difference<String, RandomState>, tags_index : &mut Has
 }
 
 fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &mut HashMap<String, NodeIndex>,
-    graph : &mut Graph<Node, Nil>, entry_index : NodeIndex) {
+    graph : &mut MyGraph, entry_index : NodeIndex) {
     for tag in tags_to_remove {
         match tags_index.entry(tag.clone()) {
             Occupied(entry) => {
@@ -184,7 +208,7 @@ fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &m
 // fn purge_tags() {}
 
 fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
-    graph : &mut Graph<Node, Nil>, entry_index : NodeIndex) {
+    graph : &mut MyGraph, entry_index : NodeIndex) {
     let existent_tags = get_tags(graph, entry_index);
     let fresh_tags = match tag_manager::get_tags(&path) {
         Some(tags) => tags,
@@ -196,10 +220,10 @@ fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
 
 // fn rename_tag() {}
 
-fn make_graph(path_root : String, base_path : String) -> (Graph<Node, Nil>, HashMap<String, NodeIndex>, NodeIndex) {
-    let mut graph : Graph<Node, Nil> = Graph::new();
+fn make_graph(path_root : String, base_path : String) -> (MyGraph, HashMap<String, NodeIndex>, NodeIndex) {
+    let mut graph : MyGraph = Graph::new();
     let mut tags_index = HashMap::new();
-    let root_index = graph.add_node(Node::Directory(path_root.clone()));
+    let root_index = graph.add_node(Node::new(path_root.clone(), NodeKind::Directory));
     update_tags(path_root.clone(), &mut tags_index, &mut graph, root_index);
     let mut is_root = true;
 
@@ -226,7 +250,7 @@ fn local_path(absolute_path : &mut String, base_path : String) -> String {
     absolute_path.split_off(base_path.len())
 }
 
-fn get_node_index(root_index : NodeIndex, graph : &Graph<Node, Nil>, path : String) -> NodeIndex {
+fn get_node_index(root_index : NodeIndex, graph : &MyGraph, path : String) -> NodeIndex {
     let mut path_vec : Vec<&str> = path.split('/').collect();
     let mut parent_index = root_index;
     let mut found = false;
@@ -241,7 +265,7 @@ fn get_node_index(root_index : NodeIndex, graph : &Graph<Node, Nil>, path : Stri
 }
 
 fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeIndex>,
-    graph : &mut Graph<Node, Nil>, root_index : NodeIndex, base : String) {
+    graph : &mut MyGraph, root_index : NodeIndex, base : String) {
     match event {
         Create(path) => {
             let mut path = path.as_path().to_str().expect("dispatcher, create, local").to_string();
@@ -260,10 +284,10 @@ fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeInde
         Rename(old_path, new_path) => {
             let mut old_path = old_path.as_path().to_str().expect("dispatcher, chmod, local").to_string();
             let new_path = new_path.as_path().to_str().expect("dispatcher, chmod, local").to_string();
-            println!("rename, old_path : {:?}, new_path : {:?}", old_path, new_path);
             let old_local = local_path(&mut old_path.clone(), base.clone());
             let new_local = local_path(&mut new_path.clone(), base.clone());
-            let entry_index = get_node_index(root_index, graph, old_local.clone());
+            println!("rename, old_path : {:?}, new_path : {:?}", old_local, new_local);
+            let entry_index = get_node_index(root_index, graph, old_local);
             move_entry(root_index, entry_index, graph, new_local);
         }
         _ => ()
