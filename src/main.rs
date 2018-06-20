@@ -88,8 +88,33 @@ fn find_parent(graph : &Graph<Node, Nil>, index : NodeIndex, entry : &str, found
     index
 }
 
-// fn move_file() {}
-// fn move_directory() {}
+fn move_entry(root_index : NodeIndex, entry_index : NodeIndex, graph : &mut Graph<Node, Nil>, new_path : String) {
+    // let mut path_vec : Vec<&str> = old_path.split('/').collect();
+    // let entry = path_vec.pop().expect("move_entry, entry").to_string();
+    let mut parent_index = entry_index;
+    for neighbor_index in graph.neighbors_directed(entry_index, Direction::Incoming) {
+        match graph.node_weight(neighbor_index) {
+            Some(data) => {
+                match data {
+                    &Node::Directory(_) => {
+                        parent_index = neighbor_index;
+                        break;
+                    },
+                    _ => ()
+                }
+            },
+            None => ()
+        }
+    }
+    let edge = graph.find_edge(parent_index, entry_index);
+    match edge {
+        Some(edge_index) => { graph.remove_edge(edge_index); },
+        None => ()
+    }
+    let new_parent_index = get_node_index(root_index, graph, new_path);
+    graph.add_edge(new_parent_index, entry_index, Nil::new());
+}
+
 // fn remove_file() {}
 // fn remove_directory() {}
 
@@ -155,6 +180,8 @@ fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &m
         }
     }
 }
+
+// fn purge_tags() {}
 
 fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut Graph<Node, Nil>, entry_index : NodeIndex) {
@@ -230,15 +257,22 @@ fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeInde
             update_tags(path, tags_index, graph, entry_index);
         },
         Remove(path) => println!("remove : {:?}", path),
-        Rename(old_path, new_path) => println!("rename, old_path : {:?}, new_path : {:?}", old_path, new_path),
+        Rename(old_path, new_path) => {
+            let mut old_path = old_path.as_path().to_str().expect("dispatcher, chmod, local").to_string();
+            let new_path = new_path.as_path().to_str().expect("dispatcher, chmod, local").to_string();
+            println!("rename, old_path : {:?}, new_path : {:?}", old_path, new_path);
+            let old_local = local_path(&mut old_path.clone(), base.clone());
+            let new_local = local_path(&mut new_path.clone(), base.clone());
+            let entry_index = get_node_index(root_index, graph, old_local.clone());
+            move_entry(root_index, entry_index, graph, new_local);
+        }
         _ => ()
     }
 }
 
 fn main() {
     let absolute_path_root = "/home/stevenliatti/Bureau/a";
-    let (base, local) = split_root_path(&mut absolute_path_root.to_string());
-    println!("base {:?}, local {:?}", base, local);
+    let (base, _) = split_root_path(&mut absolute_path_root.to_string());
     let (mut graph, mut tags_index, root_index) = make_graph(String::from(absolute_path_root), base.clone());
 
     let output_name = "graph.dot";
