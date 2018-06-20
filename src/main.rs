@@ -35,10 +35,10 @@ impl Nil {
     fn new() -> Self { Self {} }
 }
 
-// TODO: check every call to unwrap()
+// TODO: check every call to expect()
 
 fn get_node_index(root_index : NodeIndex, graph : &Graph<Node, Nil>, path : String) -> NodeIndex {
-    println!("path {}", path);
+    // println!("path {}", path);
     let mut path_vec : Vec<&str> = path.split('/').collect();
     let mut parent_index = root_index;
     if !path_vec.is_empty() {
@@ -47,7 +47,7 @@ fn get_node_index(root_index : NodeIndex, graph : &Graph<Node, Nil>, path : Stri
         for entry in path_vec {
             parent_index = find_parent(&graph, parent_index, entry);
         }
-        println!("parent_index {:?}", parent_index);
+        // println!("parent_index {:?}", parent_index);
     }
     parent_index
 }
@@ -72,23 +72,22 @@ fn find_parent(graph : &Graph<Node, Nil>, index : NodeIndex, entry : &str) -> No
     index
 }
 
-// fn add_entry(absolute_path : String, tags_index : &mut HashMap<String, NodeIndex>,
-//     graph : &mut Graph<Node, Nil>, root_index : NodeIndex) {
-//     let relative_path = local_path(absolute_path.clone());
-//     let mut path_vec : Vec<&str> = relative_path.split('/').collect();
-//     let new_entry = path_vec.pop().unwrap();
-//     let parent_index = get_node_index(root_index, &graph, relative_path.clone());
+fn add_entry(absolute_path : String, relative_path : String, tags_index : &mut HashMap<String, NodeIndex>,
+    graph : &mut Graph<Node, Nil>, root_index : NodeIndex) {
+    let mut path_vec : Vec<&str> = relative_path.split('/').collect();
+    let new_entry = path_vec.pop().expect("add_entry, path_vec, pop");
+    let parent_index = get_node_index(root_index, &graph, relative_path.clone());
 
-//     let new_node = if std::fs::metadata(absolute_path.clone()).unwrap().file_type().is_dir() {
-//         Node::Directory(String::from(new_entry))
-//     }
-//     else { Node::File(String::from(new_entry)) };
-//     println!("path_vec {:?}, new_entry {}, parent_index {:?}, new_node {:?}", path_vec, new_entry, parent_index, new_node);
+    let new_node = if std::fs::metadata(relative_path.clone()).expect("add_entry, new_node, metadata").file_type().is_dir() {
+        Node::Directory(String::from(new_entry))
+    }
+    else { Node::File(String::from(new_entry)) };
+    println!("abs_path {:?}, path_vec {:?}, new_entry {:?}, parent_index {:?}, new_node {:?}", absolute_path, path_vec, new_entry, parent_index, new_node);
     
-//     let new_node = graph.add_node(new_node);
-//     graph.add_edge(parent_index, new_node, Nil::new());
-//     update_tags(absolute_path.clone(), tags_index, graph, new_node);
-// }
+    let new_node = graph.add_node(new_node);
+    graph.add_edge(parent_index, new_node, Nil::new());
+    update_tags(relative_path.clone(), tags_index, graph, new_node);
+}
 
 // fn move_file() {}
 // fn move_directory() {}
@@ -153,8 +152,8 @@ fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &m
             },
             Vacant(_) => ()
         }
-        if graph.edges(*tags_index.get(tag).unwrap()).count() == 0 {
-            let tag_index = tags_index.remove(tag).unwrap();
+        if graph.edges(*tags_index.get(tag).expect("remove_tags, tags_index, get")).count() == 0 {
+            let tag_index = tags_index.remove(tag).expect("remove_tags, tags_index, remove");
             graph.remove_node(tag_index);
         }
     }
@@ -189,7 +188,7 @@ fn make_graph(path_root : String) -> (Graph<Node, Nil>, HashMap<String, NodeInde
         let path = entry.path().display().to_string();
         // println!("entry {:?}, path {}", entry, path);
         let mut path_vec : Vec<&str> = path.split('/').collect();
-        let new_entry = path_vec.pop().unwrap();
+        let new_entry = path_vec.pop().expect("make_graph, path_vec, pop");
         let parent_index = get_node_index(root_index, &graph, path.clone());
 
         let new_node = if entry.file_type().is_dir() { Node::Directory(String::from(new_entry)) }
@@ -205,7 +204,7 @@ fn make_graph(path_root : String) -> (Graph<Node, Nil>, HashMap<String, NodeInde
 fn split_root_path(absolute_path : &mut String) -> (String, String) {
     let clone = absolute_path.clone();
     let mut path_vec : Vec<&str> = clone.split('/').collect();
-    let local_path = path_vec.pop().unwrap().to_string();
+    let local_path = path_vec.pop().expect("split_root, local_path").to_string();
     absolute_path.truncate(clone.len() - local_path.len());
     // println!("base {:?}, local {:?}", absolute_path, local_path);
     (absolute_path.clone(), local_path)
@@ -219,12 +218,13 @@ fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeInde
     graph : &mut Graph<Node, Nil>, root_index : NodeIndex, base : String) {
     match event {
         Create(path) => {
-            let local = local_path(&mut path.as_path().to_str().unwrap().to_string(), base);
-            println!("create : {:?}", local);
-            // add_entry(path, tags_index, graph, root_index);
+            let mut path = path.as_path().to_str().expect("dispatcher, create, local").to_string();
+            let local = local_path(&mut path, base);
+            // println!("create : {:?}", local);
+            add_entry(path.clone(), local, tags_index, graph, root_index);
         },
         Chmod(path) => {
-            let local = local_path(&mut path.as_path().to_str().unwrap().to_string(), base);
+            let local = local_path(&mut path.as_path().to_str().expect("dispatcher, chmod, local").to_string(), base);
             println!("chmod : {:?}", local);
             let entry_index = get_node_index(root_index, graph, local.clone());
             update_tags(local.clone(), tags_index, graph, entry_index);
@@ -241,23 +241,29 @@ fn main() {
     let (mut graph, mut tags_index, root_index) = make_graph(local.clone());
 
     let output_name = "graph.dot";
-    let mut file = File::create(output_name).unwrap();
+    let mut file = File::create(output_name).expect("file create");
     let graph_dot = format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
-    file.write(graph_dot.as_bytes()).unwrap();
-    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-otest.jpg", output_name]).output().unwrap();
+    file.write(graph_dot.as_bytes()).expect("file write");
+    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-otest.jpg", output_name]).output().expect("exec");
 
     let (tx, rx) = channel();
-    let mut watcher = watcher(tx, Duration::from_secs(1)).unwrap();
-    watcher.watch(local.clone(), RecursiveMode::Recursive).unwrap();
+    let mut watcher = watcher(tx, Duration::from_secs(1)).expect("watcher");
+    watcher.watch(local.clone(), RecursiveMode::Recursive).expect("watcher watch");
 
+    let mut i = 0;
     loop {
         match rx.recv() {
             Ok(event) => {
                 dispatcher(event, &mut tags_index, &mut graph, root_index, base.clone());
-                let mut file = File::create(output_name).unwrap();
-                let graph_dot = format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
-                file.write(graph_dot.as_bytes()).unwrap();
-                let _exec_dot = Command::new("dot").args(&["-Tjpg", "-otest.jpg", output_name]).output().unwrap();
+                if i == 100 {
+                    println!("write !");
+                    i = 0;
+                    let mut file = File::create(output_name).expect("file create");
+                    let graph_dot = format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
+                    file.write(graph_dot.as_bytes()).expect("file write");
+                    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-otest.jpg", output_name]).output().expect("exec");
+                }
+                i = i + 1;
             },
             Err(e) => println!("watch error: {:?}", e)
         }
