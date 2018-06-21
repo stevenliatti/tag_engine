@@ -12,7 +12,7 @@ extern crate walkdir;
 use walkdir::WalkDir;
 
 extern crate petgraph;
-use petgraph::Graph;
+use petgraph::stable_graph::StableGraph;
 use petgraph::graph::NodeIndex;
 use petgraph::Direction;
 use petgraph::dot::{Dot, Config};
@@ -52,7 +52,7 @@ impl Node {
     }
 }
 
-type MyGraph = Graph<Node, Nil>;
+type MyGraph = StableGraph<Node, Nil>;
 
 // TODO: check every call to expect()
 
@@ -157,6 +157,21 @@ fn entries_to_remove(entry_index : NodeIndex, graph : &MyGraph,
     }
 }
 
+fn remove_entries(entry_index : NodeIndex, graph : &mut MyGraph, tags_index : &mut HashMap<String, NodeIndex>) {
+    let mut entries_index = Vec::new();
+    let mut check_tags_index = Vec::new();
+    entries_to_remove(entry_index, graph, &mut entries_index, &mut check_tags_index);
+    for index in entries_index.into_iter().rev() {
+        graph.remove_node(index);
+    }
+    for tag_index in check_tags_index {
+        if graph.edges(tag_index).count() == 0 {
+            tags_index.remove(&graph.node_weight(tag_index).unwrap().name);
+            graph.remove_node(tag_index);
+        }
+    }
+}
+
 fn get_tags(graph : &MyGraph, tag_index : NodeIndex) -> HashSet<String> {
     let mut tags = HashSet::new();
     for neighbor_index in graph.neighbors_directed(tag_index, Direction::Incoming) {
@@ -185,14 +200,12 @@ fn add_tags(tags_to_add : Difference<String, RandomState>, tags_index : &mut Has
             },
             Occupied(entry) => {
                 let &tag_index = entry.get();
-                if !graph.contains_edge(tag_index, entry_index) {
                     graph.add_edge(entry_index, tag_index, Nil::new());
                     graph.add_edge(tag_index, entry_index, Nil::new());
                 }
             }
         }
     }
-}
 
 fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut MyGraph, entry_index : NodeIndex) {
@@ -200,7 +213,6 @@ fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &m
         match tags_index.entry(tag.clone()) {
             Occupied(entry) => {
                 let &tag_index = entry.get();
-                if graph.contains_edge(tag_index, entry_index) {
                     match graph.find_edge(tag_index, entry_index) {
                         Some(edge) => { graph.remove_edge(edge); },
                         None => ()
@@ -213,14 +225,11 @@ fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &m
                         entry.remove();
                         graph.remove_node(tag_index);
                     }
-                }
             },
             Vacant(_) => ()
         }
     }
 }
-
-// fn purge_tags() {}
 
 fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut MyGraph, entry_index : NodeIndex) {
@@ -236,7 +245,7 @@ fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
 // fn rename_tag() {}
 
 fn make_graph(path_root : String, base_path : String) -> (MyGraph, HashMap<String, NodeIndex>, NodeIndex) {
-    let mut graph : MyGraph = Graph::new();
+    let mut graph : MyGraph = StableGraph::new();
     let mut tags_index = HashMap::new();
     let root_index = graph.add_node(Node::new(path_root.clone(), NodeKind::Directory));
     update_tags(path_root.clone(), &mut tags_index, &mut graph, root_index);
@@ -300,28 +309,7 @@ fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeInde
             let local = local_path(&mut path.clone(), base);
             println!("remove : {:?}", local);
             let entry_index = get_node_index(root_index, graph, local);
-            let mut entries_index = Vec::new();
-            let mut check_tags_index = Vec::new();
-            entries_to_remove(entry_index, graph, &mut entries_index, &mut check_tags_index);
-            entries_index.sort();
-            for index in entries_index.into_iter().rev() {
-                graph.remove_node(index);
-            }
-            // TODO: check tags here
-            // purge_tags, retains index in check_tags doesn't work, indexes are shifted
-            // for tag_index in tags_index {
-            //     let (tag_index, _) = tag_index;
-            //     match *tags_index.entry(tag_index.clone()) {
-            //         Occupied(entry) => {
-            //             let &tag_index = entry.get();
-            //             if graph.edges(tag_index).count() == 0 {
-            //                 entry.remove();
-            //                 graph.remove_node(tag_index);
-            //             }
-            //         },
-            //         Vacant(_) => ()
-            //     }
-            // }
+            remove_entries(entry_index, graph, tags_index);
         },
         Rename(old_path, new_path) => {
             let mut old_path = old_path.as_path().to_str().expect("dispatcher, rename, old_path").to_string();
