@@ -195,12 +195,10 @@ fn add_tags(tags_to_add : Difference<String, RandomState>, tags_index : &mut Has
             Vacant(entry) => {
                 let new_node_tag = graph.add_node(Node::new(tag.clone(), NodeKind::Tag));
                 entry.insert(new_node_tag);
-                graph.add_edge(entry_index, new_node_tag, Nil::new());
                 graph.add_edge(new_node_tag, entry_index, Nil::new());
             },
             Occupied(entry) => {
                 let &tag_index = entry.get();
-                    graph.add_edge(entry_index, tag_index, Nil::new());
                     graph.add_edge(tag_index, entry_index, Nil::new());
                 }
             }
@@ -214,10 +212,6 @@ fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &m
             Occupied(entry) => {
                 let &tag_index = entry.get();
                     match graph.find_edge(tag_index, entry_index) {
-                        Some(edge) => { graph.remove_edge(edge); },
-                        None => ()
-                    }
-                    match graph.find_edge(entry_index, tag_index) {
                         Some(edge) => { graph.remove_edge(edge); },
                         None => ()
                     }
@@ -337,6 +331,7 @@ fn main() {
     let absolute_path_root = "/home/stevenliatti/Bureau/a";
     let (base, _) = split_root_path(&mut absolute_path_root.to_string());
     let (mut graph, mut tags_index, root_index) = make_graph(String::from(absolute_path_root), base.clone());
+    println!("graph {:#?}, tags_index {:#?}", graph, tags_index);
 
     let dot_name = "graph.dot";
     let image_name = "graph.jpg";
@@ -346,17 +341,11 @@ fn main() {
     let mut watcher = watcher(tx, Duration::from_secs(1)).expect("watcher");
     watcher.watch(absolute_path_root, RecursiveMode::Recursive).expect("watcher watch");
 
-    // let mut i = 0;
     loop {
         match rx.recv() {
             Ok(event) => {
                 dispatcher(event, &mut tags_index, &mut graph, root_index, base.clone());
-                // if _i == 100 {
-                    // println!("write !");
-                    // i = 0;
-                    write_dot_image(&graph, dot_name, image_name);
-                // }
-                // i = i + 1;
+                write_dot_image(&graph, dot_name, image_name);
             },
             Err(e) => println!("watch error: {:?}", e)
         }
