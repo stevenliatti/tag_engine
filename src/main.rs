@@ -336,17 +336,24 @@ fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeInde
     }
 }
 
+fn write_dot_image(graph : &MyGraph, dot_name : &str, image_name : &str) {
+    let mut file = File::create(dot_name).expect("file create");
+    let graph_dot = format!("{:?}", Dot::with_config(graph, &[Config::EdgeNoLabel]));
+    file.write(graph_dot.as_bytes()).expect("file write");
+    let mut output = String::from("-o");
+    output.push_str(image_name);
+    let _exec_dot = Command::new("dot").args(&["-Tjpg", output.as_str(), dot_name]).output().expect("exec");
+}
+
 fn main() {
     let absolute_path_root = "/home/stevenliatti/Bureau/a";
     let (base, _) = split_root_path(&mut absolute_path_root.to_string());
     let (mut graph, mut tags_index, root_index) = make_graph(String::from(absolute_path_root), base.clone());
 
-    let output_name = "graph.dot";
-    let mut file = File::create(output_name).expect("file create");
-    let graph_dot = format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
-    file.write(graph_dot.as_bytes()).expect("file write");
-    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-ograph.jpg", output_name]).output().expect("exec");
-
+    let dot_name = "graph.dot";
+    let image_name = "graph.jpg";
+    write_dot_image(&graph, dot_name, image_name);
+    
     let (tx, rx) = channel();
     let mut watcher = watcher(tx, Duration::from_secs(1)).expect("watcher");
     watcher.watch(absolute_path_root, RecursiveMode::Recursive).expect("watcher watch");
@@ -359,10 +366,7 @@ fn main() {
                 // if _i == 100 {
                     // println!("write !");
                     // i = 0;
-                    let mut file = File::create(output_name).expect("file create");
-                    let graph_dot = format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel]));
-                    file.write(graph_dot.as_bytes()).expect("file write");
-                    let _exec_dot = Command::new("dot").args(&["-Tjpg", "-ograph.jpg", output_name]).output().expect("exec");
+                    write_dot_image(&graph, dot_name, image_name);
                 // }
                 // i = i + 1;
             },
