@@ -3,9 +3,12 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_set::Difference;
 use std::collections::hash_map::RandomState;
 use std::io::prelude::*;
-use std::fs::File;
+use std::fs::{File, metadata};
 use std::process::Command;
-use std::fs::metadata;
+
+use std::thread;
+use std::sync::{Mutex, Arc};
+use std::net::{TcpStream, TcpListener};
 
 extern crate tag_manager;
 extern crate walkdir;
@@ -19,24 +22,24 @@ use petgraph::dot::{Dot, Config};
 
 extern crate notify;
 use notify::{Watcher, RecursiveMode, watcher, DebouncedEvent};
-use notify::DebouncedEvent::{Create, Chmod, Remove, Rename};
+use notify::DebouncedEvent::{Create, Chmod, Remove, Rename, Rescan};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Nil;
 impl Nil {
     fn new() -> Self { Self {} }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum NodeKind {
     Tag,
     File,
     Directory
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Node {
     name : String,
     kind : NodeKind
@@ -157,6 +160,7 @@ fn entries_to_remove(entry_index : NodeIndex, graph : &MyGraph,
     }
 }
 
+// TODO: bug with orphaned tags
 fn remove_entries(entry_index : NodeIndex, graph : &mut MyGraph, tags_index : &mut HashMap<String, NodeIndex>) {
     let mut entries_index = Vec::new();
     let mut check_tags_index = Vec::new();
@@ -282,6 +286,7 @@ fn get_node_index(root_index : NodeIndex, graph : &MyGraph, path : String) -> No
     parent_index
 }
 
+// TODO: if create dir by mv, scan subgraph
 fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut MyGraph, root_index : NodeIndex, base : String) {
     match event {
@@ -330,7 +335,7 @@ fn write_dot_image(graph : &MyGraph, dot_name : &str, image_name : &str) {
 fn main() {
     let absolute_path_root = "/home/stevenliatti/Bureau/a";
     let (base, _) = split_root_path(&mut absolute_path_root.to_string());
-    let (mut graph, mut tags_index, root_index) = make_graph(String::from(absolute_path_root), base.clone());
+    let (graph, tags_index, root_index) = make_graph(String::from(absolute_path_root), base.clone());
     println!("graph {:#?}, tags_index {:#?}", graph, tags_index);
 
     let dot_name = "graph.dot";
@@ -341,11 +346,63 @@ fn main() {
     let mut watcher = watcher(tx, Duration::from_secs(1)).expect("watcher");
     watcher.watch(absolute_path_root, RecursiveMode::Recursive).expect("watcher watch");
 
+    let graph = Arc::new(Mutex::new(graph));
+    let tags_index = Arc::new(Mutex::new(tags_index));
+    let mutex_graph = Arc::clone(&graph);
+    let mutex_tags_index = Arc::clone(&tags_index);
+
+    thread::spawn(move || {
+        let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+
+        let mutex_graph_thread = Arc::clone(&graph);
+        let mutex_tags_index_thread = Arc::clone(&tags_index);
+
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            // let request = handle_connection(stream);
+
+            const BUFFER_SIZE : usize = 512;
+            let mut buffer = [0; BUFFER_SIZE];
+            stream.read(&mut buffer).unwrap();
+            let mut request = String::from("");
+            for i in 0..BUFFER_SIZE {
+                if buffer[i] > ' ' as u8 {
+                    request.push(buffer[i] as char);
+                }
+            }
+            println!("Request: {}, len: {}", request, request.len());
+
+            let ref_graph_thread = mutex_graph_thread.lock().unwrap();
+            let ref_tags_index_thread = mutex_tags_index_thread.lock().unwrap();
+            let index = ref_tags_index_thread.get(&request).unwrap();
+            println!("node index {:?}", ref_tags_index_thread.get(&request));
+            let mut nodes_names = Vec::new();
+            for entry in ref_graph_thread.neighbors(*index) {
+                nodes_names.push(ref_graph_thread.node_weight(entry).unwrap().name.clone());
+            }
+            let mut response : Vec<u8> = Vec::new();
+            for name in nodes_names {
+                for byte in name.as_bytes() {
+                    response.push(*byte);
+                }
+                response.push('\n' as u8);
+            }
+            stream.write(response.as_slice()).unwrap();
+        }
+    });
+
     loop {
         match rx.recv() {
             Ok(event) => {
-                dispatcher(event, &mut tags_index, &mut graph, root_index, base.clone());
-                write_dot_image(&graph, dot_name, image_name);
+                match event {
+                    Create(_) | Chmod(_) | Remove(_) | Rename(_, _) => {
+                        let mut ref_graph = mutex_graph.lock().unwrap();
+                        let mut ref_tags_index = mutex_tags_index.lock().unwrap();
+                        dispatcher(event, &mut ref_tags_index, &mut ref_graph, root_index, base.clone());
+                        write_dot_image(&ref_graph, dot_name, image_name);
+                    }
+                    _ => ()
+                }
             },
             Err(e) => println!("watch error: {:?}", e)
         }
