@@ -8,7 +8,7 @@ use std::process::Command;
 
 use std::thread;
 use std::sync::{Mutex, Arc};
-use std::net::{TcpStream, TcpListener};
+use std::net::TcpListener;
 
 extern crate tag_manager;
 extern crate walkdir;
@@ -22,7 +22,7 @@ use petgraph::dot::{Dot, Config};
 
 extern crate notify;
 use notify::{Watcher, RecursiveMode, watcher, DebouncedEvent};
-use notify::DebouncedEvent::{Create, Chmod, Remove, Rename, Rescan};
+use notify::DebouncedEvent::{Create, Chmod, Remove, Rename};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
@@ -47,7 +47,7 @@ struct Node {
 
 impl Node {
     fn new(name : String, kind : NodeKind) -> Self {
-        Self { name : name, kind : kind }
+        Self { name, kind }
     }
 
     fn set_name(&mut self, name : String) {
