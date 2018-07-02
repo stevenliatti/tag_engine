@@ -332,21 +332,49 @@ fn write_dot_image(graph : &MyGraph, dot_name : &str, image_name : &str) {
     let _exec_dot = Command::new("dot").args(&["-Tjpg", output.as_str(), dot_name]).output().expect("exec");
 }
 
-fn parse_request(stream : &mut UnixStream) -> String {
+#[derive(Debug, Clone)]
+enum RequestKind {
+    Entries(String),
+    Tags,
+    RenameTag(String),
+    // AddDirectory(String)
+}
+
+fn parse_request(stream : &mut UnixStream) -> Option<RequestKind> {
     const BUFFER_SIZE : usize = 512;
+    const CODE_SIZE : usize = 3;
     let mut buffer = [0; BUFFER_SIZE];
-    stream.read(&mut buffer).unwrap();
-    let mut request = String::from("");
-    for i in 0..BUFFER_SIZE {
-        if buffer[i] >= ' ' as u8 {
+    let size = stream.read(&mut buffer).unwrap();
+    if size >= CODE_SIZE {
+        let mut request = String::from("");
+        for i in CODE_SIZE..size {
+            // if buffer[i] >= ' ' as u8 {
             request.push(buffer[i] as char);
+            // }
+        }
+        request = request.trim().to_string();
+
+        let mut kind_string = String::from("");
+        for i in 0..CODE_SIZE {
+            kind_string.push(buffer[i] as char);
+        }
+
+        let kind : RequestKind;
+        if kind_string == String::from("0x0") {
+            kind = RequestKind::Entries(request);
+        }
+        else if kind_string == String::from("0x1") {
+            kind = RequestKind::Tags;
+        }
+        else if kind_string == String::from("0x2") {
+            kind = RequestKind::RenameTag(request);
         }
         else {
-            break;
+            return None;
         }
+        return Some(kind);
     }
-    request = request.trim().to_string();
-    request
+    None
 }
 
 fn socket_server(graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<String, NodeIndex>>>) {
@@ -356,30 +384,44 @@ fn socket_server(graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<S
 
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
-        let request = parse_request(&mut stream);
-        println!("Request: {}, len: {}", request, request.len());
-
-        let graph = graph_thread.lock().unwrap();
-        let tags_index = tags_index_thread.lock().unwrap();
-        println!("node index {:?}", tags_index.get(&request));
-        match tags_index.get(&request) {
-            Some(index) => {
-                let mut nodes_names = Vec::new();
-                for entry in graph.neighbors(*index) {
-                    nodes_names.push(graph.node_weight(entry).unwrap().name.clone());
-                }
-                let mut response : Vec<u8> = Vec::new();
-                for name in nodes_names {
-                    for byte in name.as_bytes() {
-                        response.push(*byte);
+        match parse_request(&mut stream) {
+            Some(kind) => match kind {
+                RequestKind::Entries(request) => {
+                    println!("Request for Entries {:?}", request);
+                    let graph = graph_thread.lock().unwrap();
+                    let tags_index = tags_index_thread.lock().unwrap();
+                    println!("NodeIndex {:?}", tags_index.get(&request));
+                    match tags_index.get(&request) {
+                        Some(index) => {
+                            let mut nodes_names = Vec::new();
+                            for entry in graph.neighbors(*index) {
+                                nodes_names.push(graph.node_weight(entry).unwrap().name.clone());
+                            }
+                            let mut response : Vec<u8> = Vec::new();
+                            for name in nodes_names {
+                                for byte in name.as_bytes() {
+                                    response.push(*byte);
+                                }
+                                response.push('\n' as u8);
+                            }
+                            stream.write(response.as_slice()).unwrap();
+                            stream.flush().unwrap();
+                        },
+                        None => {
+                            stream.write("No files\n".as_bytes()).unwrap();
+                            stream.flush().unwrap();
+                        }
                     }
-                    response.push('\n' as u8);
+                },
+                RequestKind::Tags => {
+                    println!("Request for Tag");
+                },
+                RequestKind::RenameTag(request) => {
+                    println!("Request for RenameTag {:?}", request);
                 }
-                stream.write(response.as_slice()).unwrap();
-                stream.flush().unwrap();
             },
             None => {
-                stream.write("No files\n".as_bytes()).unwrap();
+                stream.write("Invalid request\n".as_bytes()).unwrap();
                 stream.flush().unwrap();
             }
         }
