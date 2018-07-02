@@ -240,12 +240,14 @@ fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
     add_tags(fresh_tags.difference(&existent_tags), tags_index, graph, entry_index);
 }
 
+// TODO:
 // fn rename_tag() {}
 
 fn make_graph(path_root : String, base_path : String) -> (MyGraph, HashMap<String, NodeIndex>, NodeIndex) {
     let mut graph : MyGraph = StableGraph::new();
     let mut tags_index = HashMap::new();
-    let root_index = graph.add_node(Node::new(path_root.clone(), NodeKind::Directory));
+    let local_root = local_path(&mut path_root.clone(), base_path.clone());
+    let root_index = graph.add_node(Node::new(local_root, NodeKind::Directory));
     update_tags(path_root.clone(), &mut tags_index, &mut graph, root_index);
     let mut is_root = true;
 
@@ -377,7 +379,36 @@ fn parse_request(stream : &mut UnixStream) -> Option<RequestKind> {
     None
 }
 
-fn socket_server(graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<String, NodeIndex>>>) {
+fn make_path(graph : &MyGraph, entry : NodeIndex, path_vec : &mut Vec<String>) {
+    path_vec.push(graph.node_weight(entry).unwrap().name.clone());
+    for neighbor in graph.neighbors_directed(entry, Direction::Incoming) {
+        match graph.node_weight(neighbor).unwrap().kind {
+            NodeKind::Directory => {
+                make_path(graph, neighbor, path_vec);
+            },
+            _ => ()
+        }
+    }
+}
+
+fn entries(graph : &MyGraph, index : NodeIndex, base_path : String) -> Vec<String> {
+    let mut nodes_names = Vec::new();
+    for entry in graph.neighbors(index) {
+        let mut path_vec = Vec::new();
+        make_path(&graph, entry, &mut path_vec);
+        let mut path = base_path.clone();
+        for entry in path_vec.into_iter().rev() {
+            path.push_str(&entry);
+            path.push_str("/");
+        }
+        path.pop();
+        nodes_names.push(path);
+    }
+    nodes_names.sort();
+    nodes_names
+}
+
+fn socket_server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<String, NodeIndex>>>) {
     let listener = UnixListener::bind("/tmp/tag_engine").unwrap();
     let graph_thread = Arc::clone(graph);
     let tags_index_thread = Arc::clone(tags_index);
@@ -393,12 +424,9 @@ fn socket_server(graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<S
                     println!("NodeIndex {:?}", tags_index.get(&request));
                     match tags_index.get(&request) {
                         Some(index) => {
-                            let mut nodes_names = Vec::new();
-                            for entry in graph.neighbors(*index) {
-                                nodes_names.push(graph.node_weight(entry).unwrap().name.clone());
-                            }
+                            let entries = entries(&graph, *index, base_path.clone());
                             let mut response : Vec<u8> = Vec::new();
-                            for name in nodes_names {
+                            for name in entries {
                                 for byte in name.as_bytes() {
                                     response.push(*byte);
                                 }
@@ -447,8 +475,9 @@ fn main() {
     let main_graph = Arc::clone(&graph);
     let main_tags_index = Arc::clone(&tags_index);
 
+    let base_clone = base.clone();
     thread::spawn(move || {
-        socket_server(&graph, &tags_index);
+        socket_server(base_clone, &graph, &tags_index);
     });
 
     loop {
