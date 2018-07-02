@@ -8,7 +8,7 @@ use std::process::Command;
 
 use std::thread;
 use std::sync::{Mutex, Arc};
-use std::net::TcpListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 
 extern crate tag_manager;
 extern crate walkdir;
@@ -332,6 +332,60 @@ fn write_dot_image(graph : &MyGraph, dot_name : &str, image_name : &str) {
     let _exec_dot = Command::new("dot").args(&["-Tjpg", output.as_str(), dot_name]).output().expect("exec");
 }
 
+fn parse_request(stream : &mut UnixStream) -> String {
+    const BUFFER_SIZE : usize = 512;
+    let mut buffer = [0; BUFFER_SIZE];
+    stream.read(&mut buffer).unwrap();
+    let mut request = String::from("");
+    for i in 0..BUFFER_SIZE {
+        if buffer[i] >= ' ' as u8 {
+            request.push(buffer[i] as char);
+        }
+        else {
+            break;
+        }
+    }
+    request = request.trim().to_string();
+    request
+}
+
+fn socket_server(graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<String, NodeIndex>>>) {
+    let listener = UnixListener::bind("/tmp/tag_engine").unwrap();
+    let graph_thread = Arc::clone(graph);
+    let tags_index_thread = Arc::clone(tags_index);
+
+    for stream in listener.incoming() {
+        let mut stream = stream.unwrap();
+        let request = parse_request(&mut stream);
+        println!("Request: {}, len: {}", request, request.len());
+
+        let graph = graph_thread.lock().unwrap();
+        let tags_index = tags_index_thread.lock().unwrap();
+        println!("node index {:?}", tags_index.get(&request));
+        match tags_index.get(&request) {
+            Some(index) => {
+                let mut nodes_names = Vec::new();
+                for entry in graph.neighbors(*index) {
+                    nodes_names.push(graph.node_weight(entry).unwrap().name.clone());
+                }
+                let mut response : Vec<u8> = Vec::new();
+                for name in nodes_names {
+                    for byte in name.as_bytes() {
+                        response.push(*byte);
+                    }
+                    response.push('\n' as u8);
+                }
+                stream.write(response.as_slice()).unwrap();
+                stream.flush().unwrap();
+            },
+            None => {
+                stream.write("No files\n".as_bytes()).unwrap();
+                stream.flush().unwrap();
+            }
+        }
+    }
+}
+
 fn main() {
     let absolute_path_root = "/home/stevenliatti/Bureau/a";
     let (base, _) = split_root_path(&mut absolute_path_root.to_string());
@@ -348,47 +402,11 @@ fn main() {
 
     let graph = Arc::new(Mutex::new(graph));
     let tags_index = Arc::new(Mutex::new(tags_index));
-    let mutex_graph = Arc::clone(&graph);
-    let mutex_tags_index = Arc::clone(&tags_index);
+    let main_graph = Arc::clone(&graph);
+    let main_tags_index = Arc::clone(&tags_index);
 
     thread::spawn(move || {
-        let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
-
-        let mutex_graph_thread = Arc::clone(&graph);
-        let mutex_tags_index_thread = Arc::clone(&tags_index);
-
-        for stream in listener.incoming() {
-            let mut stream = stream.unwrap();
-            // let request = handle_connection(stream);
-
-            const BUFFER_SIZE : usize = 512;
-            let mut buffer = [0; BUFFER_SIZE];
-            stream.read(&mut buffer).unwrap();
-            let mut request = String::from("");
-            for i in 0..BUFFER_SIZE {
-                if buffer[i] > ' ' as u8 {
-                    request.push(buffer[i] as char);
-                }
-            }
-            println!("Request: {}, len: {}", request, request.len());
-
-            let ref_graph_thread = mutex_graph_thread.lock().unwrap();
-            let ref_tags_index_thread = mutex_tags_index_thread.lock().unwrap();
-            let index = ref_tags_index_thread.get(&request).unwrap();
-            println!("node index {:?}", ref_tags_index_thread.get(&request));
-            let mut nodes_names = Vec::new();
-            for entry in ref_graph_thread.neighbors(*index) {
-                nodes_names.push(ref_graph_thread.node_weight(entry).unwrap().name.clone());
-            }
-            let mut response : Vec<u8> = Vec::new();
-            for name in nodes_names {
-                for byte in name.as_bytes() {
-                    response.push(*byte);
-                }
-                response.push('\n' as u8);
-            }
-            stream.write(response.as_slice()).unwrap();
-        }
+        socket_server(&graph, &tags_index);
     });
 
     loop {
@@ -396,8 +414,8 @@ fn main() {
             Ok(event) => {
                 match event {
                     Create(_) | Chmod(_) | Remove(_) | Rename(_, _) => {
-                        let mut ref_graph = mutex_graph.lock().unwrap();
-                        let mut ref_tags_index = mutex_tags_index.lock().unwrap();
+                        let mut ref_graph = main_graph.lock().unwrap();
+                        let mut ref_tags_index = main_tags_index.lock().unwrap();
                         dispatcher(event, &mut ref_tags_index, &mut ref_graph, root_index, base.clone());
                         write_dot_image(&ref_graph, dot_name, image_name);
                     }
