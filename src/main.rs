@@ -408,6 +408,18 @@ fn entries(graph : &MyGraph, index : NodeIndex, base_path : String) -> Vec<Strin
     nodes_names
 }
 
+fn write_response(entries : Vec<String>, stream : &mut UnixStream) {
+    let mut response : Vec<u8> = Vec::new();
+    for name in entries {
+        for byte in name.as_bytes() {
+            response.push(*byte);
+        }
+        response.push('\n' as u8);
+    }
+    stream.write(response.as_slice()).unwrap();
+    stream.flush().unwrap();
+}
+
 fn socket_server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<String, NodeIndex>>>) {
     let listener = UnixListener::bind("/tmp/tag_engine").unwrap();
     let graph_thread = Arc::clone(graph);
@@ -425,15 +437,7 @@ fn socket_server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : 
                     match tags_index.get(&request) {
                         Some(index) => {
                             let entries = entries(&graph, *index, base_path.clone());
-                            let mut response : Vec<u8> = Vec::new();
-                            for name in entries {
-                                for byte in name.as_bytes() {
-                                    response.push(*byte);
-                                }
-                                response.push('\n' as u8);
-                            }
-                            stream.write(response.as_slice()).unwrap();
-                            stream.flush().unwrap();
+                            write_response(entries, &mut stream);
                         },
                         None => {
                             stream.write("No files\n".as_bytes()).unwrap();
@@ -443,6 +447,10 @@ fn socket_server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : 
                 },
                 RequestKind::Tags => {
                     println!("Request for Tag");
+                    let tags_index = tags_index_thread.lock().unwrap();
+                    let mut entries : Vec<String> = tags_index.keys().map(|key| key.clone()).collect();
+                    entries.sort();
+                    write_response(entries, &mut stream);
                 },
                 RequestKind::RenameTag(request) => {
                     println!("Request for RenameTag {:?}", request);
