@@ -343,20 +343,18 @@ enum RequestKind {
 }
 
 fn parse_request(stream : &mut UnixStream) -> Option<RequestKind> {
-    const BUFFER_SIZE : usize = 512;
+    const BUFFER_SIZE : usize = 4096;
     const CODE_SIZE : usize = 3;
     let mut buffer = [0; BUFFER_SIZE];
     let size = stream.read(&mut buffer).unwrap();
     if size >= CODE_SIZE {
-        let mut request = String::from("");
+        let mut request = String::new();
         for i in CODE_SIZE..size {
-            // if buffer[i] >= ' ' as u8 {
             request.push(buffer[i] as char);
-            // }
         }
         request = request.trim().to_string();
 
-        let mut kind_string = String::from("");
+        let mut kind_string = String::new();
         for i in 0..CODE_SIZE {
             kind_string.push(buffer[i] as char);
         }
@@ -446,7 +444,7 @@ fn socket_server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : 
                     }
                 },
                 RequestKind::Tags => {
-                    println!("Request for Tag");
+                    println!("Request for Tags");
                     let tags_index = tags_index_thread.lock().unwrap();
                     let mut entries : Vec<String> = tags_index.keys().map(|key| key.clone()).collect();
                     entries.sort();
