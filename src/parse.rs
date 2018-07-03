@@ -63,5 +63,89 @@ pub fn infix_to_postfix(infix : String) -> Vec<String> {
             postfix.push(arg.to_string());
         }
     }
-    postfix.into_iter().map(|e| e.to_string()).collect()
+    for op in stack.into_iter().rev() {
+        postfix.push(Operator::operator_to_str(&op));
+    }
+    postfix
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_infix_to_postfix_1() {
+        let infix = String::from("bob AND fred");
+        let postfix = vec![
+            String::from("bob"),
+            String::from("fred"),
+            String::from("AND")
+        ];
+        assert_eq!(infix_to_postfix(infix), postfix);
+    }
+
+    #[test]
+    fn test_infix_to_postfix_2() {
+        let infix = String::from("bob OR fred");
+        let postfix = vec![
+            String::from("bob"),
+            String::from("fred"),
+            String::from("OR")
+        ];
+        assert_eq!(infix_to_postfix(infix), postfix);
+    }
+
+    #[test]
+    fn test_infix_to_postfix_3() {
+        let infix = String::from("bob AND fred OR max");
+        let postfix = vec![
+            String::from("bob"),
+            String::from("fred"),
+            String::from("AND"),
+            String::from("max"),
+            String::from("OR")
+        ];
+        assert_eq!(infix_to_postfix(infix), postfix);
+    }
+
+    #[test]
+    fn test_infix_to_postfix_4() {
+        let infix = String::from("bob OR fred AND max");
+        let postfix = vec![
+            String::from("bob"),
+            String::from("fred"),
+            String::from("max"),
+            String::from("AND"),
+            String::from("OR")
+        ];
+        assert_eq!(infix_to_postfix(infix), postfix);
+    }
+
+    #[test]
+    fn test_infix_to_postfix_5() {
+        let infix = String::from("bob AND fred AND max");
+        let postfix = vec![
+            String::from("bob"),
+            String::from("fred"),
+            String::from("AND"),
+            String::from("max"),
+            String::from("AND")
+        ];
+        assert_eq!(infix_to_postfix(infix), postfix);
+    }
+
+    #[test]
+    fn test_infix_to_postfix_6() {
+        let infix = String::from("bob AND fred OR max AND paul");
+        let postfix = vec![
+            String::from("bob"),
+            String::from("fred"),
+            String::from("AND"),
+            String::from("max"),
+            String::from("paul"),
+            String::from("AND"),
+            String::from("OR")
+        ];
+        assert_eq!(infix_to_postfix(infix), postfix);
+    }
 }
