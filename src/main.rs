@@ -240,9 +240,6 @@ fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
     add_tags(fresh_tags.difference(&existent_tags), tags_index, graph, entry_index);
 }
 
-// TODO:
-// fn rename_tag() {}
-
 fn make_graph(path_root : String, base_path : String) -> (MyGraph, HashMap<String, NodeIndex>, NodeIndex) {
     let mut graph : MyGraph = StableGraph::new();
     let mut tags_index = HashMap::new();
@@ -389,9 +386,9 @@ fn make_path(graph : &MyGraph, entry : NodeIndex, path_vec : &mut Vec<String>) {
     }
 }
 
-fn entries(graph : &MyGraph, index : NodeIndex, base_path : String) -> Vec<String> {
+fn socket_entries(graph : &MyGraph, tag_index : NodeIndex, base_path : String) -> Vec<String> {
     let mut nodes_names = Vec::new();
-    for entry in graph.neighbors(index) {
+    for entry in graph.neighbors(tag_index) {
         let mut path_vec = Vec::new();
         make_path(&graph, entry, &mut path_vec);
         let mut path = base_path.clone();
@@ -434,7 +431,7 @@ fn socket_server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : 
                     println!("NodeIndex {:?}", tags_index.get(&request));
                     match tags_index.get(&request) {
                         Some(index) => {
-                            let entries = entries(&graph, *index, base_path.clone());
+                            let entries = socket_entries(&graph, *index, base_path.clone());
                             write_response(entries, &mut stream);
                         },
                         None => {
@@ -452,6 +449,31 @@ fn socket_server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : 
                 },
                 RequestKind::RenameTag(request) => {
                     println!("Request for RenameTag {:?}", request);
+                    let v : Vec<&str> = request.split(' ').collect();
+                    if v.len() == 2 {
+                        let old_name = v[0];
+                        let new_name = v[1];
+                        let mut graph = graph_thread.lock().unwrap();
+                        let mut tags_index = tags_index_thread.lock().unwrap();
+                        match tags_index.remove(old_name) {
+                            Some(index) => {
+                                tags_index.insert(new_name.to_string(), index);
+                                graph.node_weight_mut(index).unwrap().name = new_name.to_string();
+                                let mut entries = socket_entries(&graph, index, base_path.clone());
+                                for e in &entries {
+                                    tag_manager::rename_tag(e, old_name.to_string(), new_name.to_string());
+                                }
+                                entries.insert(0, format!("Rename {:?} to {:?} for files :", old_name, new_name));
+                                write_response(entries, &mut stream);
+                            },
+                            None => {
+                                write_response(vec![String::from("No tag with this old name")], &mut stream);
+                            }
+                        }
+                    }
+                    else {
+                        write_response(vec![String::from("Bad request")], &mut stream);
+                    }
                 }
             },
             None => {
