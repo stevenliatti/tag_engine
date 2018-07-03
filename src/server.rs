@@ -1,0 +1,182 @@
+use std::collections::HashMap;
+use std::io::prelude::*;
+use std::sync::{Mutex, Arc};
+use std::os::unix::net::{UnixListener, UnixStream};
+
+extern crate walkdir;
+
+extern crate petgraph;
+use petgraph::graph::NodeIndex;
+use petgraph::Direction;
+
+extern crate tag_manager;
+
+use graph::{MyGraph, NodeKind};
+use parse::infix_to_postfix;
+
+#[derive(Debug, Clone)]
+enum RequestKind {
+    Entries(String),
+    Tags,
+    RenameTag(String),
+    // AddDirectory(String)
+}
+
+fn parse_request(stream : &mut UnixStream) -> Option<RequestKind> {
+    const BUFFER_SIZE : usize = 4096;
+    const CODE_SIZE : usize = 3;
+    let mut buffer = [0; BUFFER_SIZE];
+    let size = stream.read(&mut buffer).unwrap();
+    if size >= CODE_SIZE {
+        let mut request = String::new();
+        for i in CODE_SIZE..size {
+            request.push(buffer[i] as char);
+        }
+        request = request.trim().to_string();
+
+        let mut kind_string = String::new();
+        for i in 0..CODE_SIZE {
+            kind_string.push(buffer[i] as char);
+        }
+
+        let kind : RequestKind;
+        if kind_string == String::from("0x0") {
+            kind = RequestKind::Entries(request);
+        }
+        else if kind_string == String::from("0x1") {
+            kind = RequestKind::Tags;
+        }
+        else if kind_string == String::from("0x2") {
+            kind = RequestKind::RenameTag(request);
+        }
+        else {
+            return None;
+        }
+        return Some(kind);
+    }
+    None
+}
+
+fn make_path(graph : &MyGraph, entry : NodeIndex, path_vec : &mut Vec<String>) {
+    path_vec.push(graph.node_weight(entry).unwrap().name.clone());
+    for neighbor in graph.neighbors_directed(entry, Direction::Incoming) {
+        match graph.node_weight(neighbor).unwrap().kind {
+            NodeKind::Directory => {
+                make_path(graph, neighbor, path_vec);
+            },
+            _ => ()
+        }
+    }
+}
+
+fn entries(graph : &MyGraph, tag_index : NodeIndex, base_path : String) -> Vec<String> {
+    let mut nodes_names = Vec::new();
+    for entry in graph.neighbors(tag_index) {
+        let mut path_vec = Vec::new();
+        make_path(&graph, entry, &mut path_vec);
+        let mut path = base_path.clone();
+        for entry in path_vec.into_iter().rev() {
+            path.push_str(&entry);
+            path.push_str("/");
+        }
+        path.pop();
+        nodes_names.push(path);
+    }
+    nodes_names.sort();
+    nodes_names
+}
+
+fn write_response(entries : Vec<String>, stream : &mut UnixStream) {
+    let mut response : Vec<u8> = Vec::new();
+    for name in entries {
+        for byte in name.as_bytes() {
+            response.push(*byte);
+        }
+        response.push('\n' as u8);
+    }
+    stream.write(response.as_slice()).unwrap();
+    stream.flush().unwrap();
+}
+
+fn request_entries(request : String, graph_thread : &Arc<Mutex<MyGraph>>, 
+    tags_index_thread : &Arc<Mutex<HashMap<String, NodeIndex>>>, base_path : String, 
+    stream : &mut UnixStream) {
+    println!("Request for Entries {:?}", request);
+    let graph = graph_thread.lock().unwrap();
+    let tags_index = tags_index_thread.lock().unwrap();
+    // TODO:
+    let _postfix = infix_to_postfix(request.clone());
+    println!("NodeIndex {:?}", tags_index.get(&request));
+    match tags_index.get(&request) {
+        Some(index) => {
+            let entries = entries(&graph, *index, base_path.clone());
+            write_response(entries, stream);
+        },
+        None => {
+            stream.write("No files\n".as_bytes()).unwrap();
+            stream.flush().unwrap();
+        }
+    }
+}
+
+fn request_tags(tags_index_thread : &Arc<Mutex<HashMap<String, NodeIndex>>>, stream : &mut UnixStream) {
+    println!("Request for Tags");
+    let tags_index = tags_index_thread.lock().unwrap();
+    let mut entries : Vec<String> = tags_index.keys().map(|key| key.clone()).collect();
+    entries.sort();
+    write_response(entries, stream);
+}
+
+fn request_rename_tag(request : String, graph_thread : &Arc<Mutex<MyGraph>>, 
+    tags_index_thread : &Arc<Mutex<HashMap<String, NodeIndex>>>, base_path : String, 
+    stream : &mut UnixStream) {
+    println!("Request for RenameTag {:?}", request);
+    let v : Vec<&str> = request.split(' ').collect();
+    if v.len() == 2 {
+        let old_name = v[0];
+        let new_name = v[1];
+        let mut graph = graph_thread.lock().unwrap();
+        let mut tags_index = tags_index_thread.lock().unwrap();
+        match tags_index.remove(old_name) {
+            Some(index) => {
+                tags_index.insert(new_name.to_string(), index);
+                graph.node_weight_mut(index).unwrap().name = new_name.to_string();
+                let mut entries = entries(&graph, index, base_path.clone());
+                for e in &entries {
+                    tag_manager::rename_tag(e, old_name.to_string(), new_name.to_string());
+                }
+                entries.insert(0, format!("Rename {:?} to {:?} for files :", old_name, new_name));
+                write_response(entries, stream);
+            },
+            None => {
+                write_response(vec![String::from("No tag with this old name")], stream);
+            }
+        }
+    }
+    else {
+        write_response(vec![String::from("Bad request")], stream);
+    }
+}
+
+pub fn server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<String, NodeIndex>>>) {
+    let listener = UnixListener::bind("/tmp/tag_engine").unwrap();
+    let graph_thread = Arc::clone(graph);
+    let tags_index_thread = Arc::clone(tags_index);
+
+    for stream in listener.incoming() {
+        let mut stream = stream.unwrap();
+        match parse_request(&mut stream) {
+            Some(kind) => match kind {
+                RequestKind::Entries(request) => request_entries(request, &graph_thread, 
+                    &tags_index_thread, base_path.clone(), &mut stream),
+                RequestKind::Tags => request_tags(&tags_index_thread, &mut stream),
+                RequestKind::RenameTag(request) => request_rename_tag(request, &graph_thread, 
+                    &tags_index_thread, base_path.clone(), &mut stream)
+            },
+            None => {
+                stream.write("Invalid request\n".as_bytes()).unwrap();
+                stream.flush().unwrap();
+            }
+        }
+    }
+}

@@ -16,7 +16,7 @@ use notify::DebouncedEvent::{Create, Chmod, Remove, Rename};
 extern crate tag_manager;
 
 extern crate tag_engine;
-use tag_engine::MyGraph;
+use tag_engine::graph::MyGraph;
 
 // TODO: check every call to expect()
 
@@ -40,7 +40,7 @@ fn write_dot_image(graph : &MyGraph, dot_name : &str, image_name : &str) {
 fn main() {
     let absolute_path_root = "/home/stevenliatti/Bureau/a";
     let (base, _) = split_root_path(&mut absolute_path_root.to_string());
-    let (graph, tags_index, root_index) = tag_engine::make_graph(String::from(absolute_path_root), base.clone());
+    let (graph, tags_index, root_index) = tag_engine::graph::make_graph(String::from(absolute_path_root), base.clone());
     println!("graph {:#?}, tags_index {:#?}", graph, tags_index);
 
     let dot_name = "graph.dot";
@@ -58,7 +58,7 @@ fn main() {
 
     let base_clone = base.clone();
     thread::spawn(move || {
-        tag_engine::socket_server(base_clone, &graph, &tags_index);
+        tag_engine::server::server(base_clone, &graph, &tags_index);
     });
 
     loop {
