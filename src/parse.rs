@@ -2,9 +2,8 @@
 const AND_OPERATOR_STR : &str = "AND";
 const OR_OPERATOR_STR : &str = "OR";
 
-#[derive(Debug, Clone)]
-enum Operator { AND, OR }
-
+#[derive(Debug, Clone, PartialEq)]
+pub enum Operator { AND, OR }
 use self::Operator::*;
 impl Operator {
     fn compare(&self, other : &Operator) -> i8 {
@@ -14,34 +13,33 @@ impl Operator {
             _ => 0
         }
     }
+}
 
-    fn str_to_operator(op_str : &str) -> Option<Self> {
-        if op_str == AND_OPERATOR_STR {
-            Some(AND)
-        }
-        else if op_str == OR_OPERATOR_STR {
-            Some(OR)
-        }
-        else {
-            None
-        }
+#[derive(Debug, Clone, PartialEq)]
+pub enum Arg {
+    Operand(String),
+    Operator(Operator)
+}
+
+fn str_to_operator(op_str : &str) -> Option<Operator> {
+    if op_str == AND_OPERATOR_STR {
+        Some(AND)
     }
-
-    fn operator_to_str(op : &Operator) -> String {
-        match op {
-            &AND => AND_OPERATOR_STR.to_string(),
-            &OR => OR_OPERATOR_STR.to_string()
-        }
+    else if op_str == OR_OPERATOR_STR {
+        Some(OR)
+    }
+    else {
+        None
     }
 }
 
-pub fn infix_to_postfix(infix : String) -> Vec<String> {
+pub fn infix_to_postfix(infix : String) -> Vec<Arg> {
     let infix : Vec<&str> = infix.split(' ').collect();
     let mut stack = Vec::new();
-    let mut postfix = Vec::new();
+    let mut postfix : Vec<Arg> = Vec::new();
     for arg in infix {
         if arg == AND_OPERATOR_STR || arg == OR_OPERATOR_STR {
-            let arg = Operator::str_to_operator(arg).unwrap();
+            let arg = str_to_operator(arg).unwrap();
             if stack.is_empty() {
                 stack.push(arg);
             }
@@ -53,18 +51,18 @@ pub fn infix_to_postfix(infix : String) -> Vec<String> {
                         break;
                     }
                     else {
-                        postfix.push(Operator::operator_to_str(&stack.pop().unwrap()));
+                        postfix.push(Arg::Operator(stack.pop().unwrap()));
                     }
                 }
                 stack.push(arg);
             }
         }
         else {
-            postfix.push(arg.to_string());
+            postfix.push(Arg::Operand(arg.to_string()));
         }
     }
     for op in stack.into_iter().rev() {
-        postfix.push(Operator::operator_to_str(&op));
+        postfix.push(Arg::Operator(op));
     }
     postfix
 }
@@ -77,9 +75,9 @@ mod tests {
     fn test_infix_to_postfix_1() {
         let infix = String::from("bob AND fred");
         let postfix = vec![
-            String::from("bob"),
-            String::from("fred"),
-            String::from("AND")
+            Arg::Operand(String::from("bob")),
+            Arg::Operand(String::from("fred")),
+            Arg::Operator(Operator::AND)
         ];
         assert_eq!(infix_to_postfix(infix), postfix);
     }
@@ -88,9 +86,9 @@ mod tests {
     fn test_infix_to_postfix_2() {
         let infix = String::from("bob OR fred");
         let postfix = vec![
-            String::from("bob"),
-            String::from("fred"),
-            String::from("OR")
+            Arg::Operand(String::from("bob")),
+            Arg::Operand(String::from("fred")),
+            Arg::Operator(Operator::OR)
         ];
         assert_eq!(infix_to_postfix(infix), postfix);
     }
@@ -99,11 +97,11 @@ mod tests {
     fn test_infix_to_postfix_3() {
         let infix = String::from("bob AND fred OR max");
         let postfix = vec![
-            String::from("bob"),
-            String::from("fred"),
-            String::from("AND"),
-            String::from("max"),
-            String::from("OR")
+            Arg::Operand(String::from("bob")),
+            Arg::Operand(String::from("fred")),
+            Arg::Operator(Operator::AND),
+            Arg::Operand(String::from("max")),
+            Arg::Operator(Operator::OR)
         ];
         assert_eq!(infix_to_postfix(infix), postfix);
     }
@@ -112,11 +110,11 @@ mod tests {
     fn test_infix_to_postfix_4() {
         let infix = String::from("bob OR fred AND max");
         let postfix = vec![
-            String::from("bob"),
-            String::from("fred"),
-            String::from("max"),
-            String::from("AND"),
-            String::from("OR")
+            Arg::Operand(String::from("bob")),
+            Arg::Operand(String::from("fred")),
+            Arg::Operand(String::from("max")),
+            Arg::Operator(Operator::AND),
+            Arg::Operator(Operator::OR)
         ];
         assert_eq!(infix_to_postfix(infix), postfix);
     }
@@ -125,11 +123,11 @@ mod tests {
     fn test_infix_to_postfix_5() {
         let infix = String::from("bob AND fred AND max");
         let postfix = vec![
-            String::from("bob"),
-            String::from("fred"),
-            String::from("AND"),
-            String::from("max"),
-            String::from("AND")
+            Arg::Operand(String::from("bob")),
+            Arg::Operand(String::from("fred")),
+            Arg::Operator(Operator::AND),
+            Arg::Operand(String::from("max")),
+            Arg::Operator(Operator::AND)
         ];
         assert_eq!(infix_to_postfix(infix), postfix);
     }
@@ -138,13 +136,13 @@ mod tests {
     fn test_infix_to_postfix_6() {
         let infix = String::from("bob AND fred OR max AND paul");
         let postfix = vec![
-            String::from("bob"),
-            String::from("fred"),
-            String::from("AND"),
-            String::from("max"),
-            String::from("paul"),
-            String::from("AND"),
-            String::from("OR")
+            Arg::Operand(String::from("bob")),
+            Arg::Operand(String::from("fred")),
+            Arg::Operator(Operator::AND),
+            Arg::Operand(String::from("max")),
+            Arg::Operand(String::from("paul")),
+            Arg::Operator(Operator::AND),
+            Arg::Operator(Operator::OR)
         ];
         assert_eq!(infix_to_postfix(infix), postfix);
     }
