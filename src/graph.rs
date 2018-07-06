@@ -3,6 +3,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::hash_set::Difference;
 use std::collections::hash_map::RandomState;
 use std::fs::metadata;
+use std::fmt::{Debug, Formatter, Result};
 
 use walkdir::WalkDir;
 
@@ -14,9 +15,6 @@ extern crate tag_manager;
 
 #[derive(Debug, Clone)]
 pub struct Nil;
-impl Nil {
-    fn new() -> Self { Self {} }
-}
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
@@ -25,10 +23,16 @@ pub enum NodeKind {
     Directory
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Node {
     pub name : String,
     pub kind : NodeKind
+}
+
+pub type MyGraph = StableGraph<Node, Nil>;
+
+impl Nil {
+    fn new() -> Self { Self {} }
 }
 
 impl Node {
@@ -41,7 +45,11 @@ impl Node {
     }
 }
 
-pub type MyGraph = StableGraph<Node, Nil>;
+impl Debug for Node {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        write!(f, "{:?} {:?}", self.kind, self.name)
+    }
+}
 
 // TODO: check every call to expect()
 
@@ -74,21 +82,29 @@ pub fn make_subgraph(root_index : NodeIndex, tags_index : &mut HashMap<String, N
     }
 }
 
-pub fn make_graph(path_root : String, base_path : String) -> (MyGraph, HashMap<String, NodeIndex>, NodeIndex) {
+pub fn make_graph(path_root : String, base_path : String)
+    -> (MyGraph, HashMap<String, NodeIndex>, NodeIndex) {
     let mut graph : MyGraph = StableGraph::new();
     let mut tags_index = HashMap::new();
-    let local_root = local_path(&mut path_root.clone(), base_path.clone());
-    let root_index = graph.add_node(Node::new(local_root, NodeKind::Directory));
-    update_tags(path_root.clone(), &mut tags_index, &mut graph, root_index);
+    let local_root = local_path(&mut path_root.clone(),
+        base_path.clone());
+    let root_index = graph.add_node(
+        Node::new(local_root, NodeKind::Directory)
+    );
+    update_tags(path_root.clone(), &mut tags_index,
+        &mut graph, root_index);
     let mut is_root = true;
 
-    for entry in WalkDir::new(path_root).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(path_root).into_iter()
+        .filter_map(|e| e.ok()) {
         if is_root {
             is_root = false;
             continue;
         }
-        let path = local_path(&mut entry.path().display().to_string(), base_path.clone());
-        make_subgraph(root_index, &mut tags_index, &mut graph, path, base_path.clone());
+        let mut path = entry.path().display().to_string();
+        let path = local_path(&mut path, base_path.clone());
+        make_subgraph(root_index, &mut tags_index, &mut graph,
+            path, base_path.clone());
     }
     (graph, tags_index, root_index)
 }
@@ -201,15 +217,18 @@ fn entries_to_remove(entry_index : NodeIndex, graph : &MyGraph,
 
 // ----------------------------------------- TAGS -----------------------------------------
 
-pub fn update_tags(path : String, tags_index : &mut HashMap<String, NodeIndex>,
+pub fn update_tags(path : String,
+    tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut MyGraph, entry_index : NodeIndex) {
     let existent_tags = get_tags(graph, entry_index);
     let fresh_tags = match tag_manager::get_tags(&path) {
         Some(tags) => tags,
         None => HashSet::new()
     };
-    remove_tags(existent_tags.difference(&fresh_tags), tags_index, graph, entry_index);
-    add_tags(fresh_tags.difference(&existent_tags), tags_index, graph, entry_index);
+    remove_tags(existent_tags.difference(&fresh_tags),
+        tags_index, graph, entry_index);
+    add_tags(fresh_tags.difference(&existent_tags),
+        tags_index, graph, entry_index);
 }
 
 fn get_tags(graph : &MyGraph, tag_index : NodeIndex) -> HashSet<String> {
@@ -239,11 +258,11 @@ fn add_tags(tags_to_add : Difference<String, RandomState>, tags_index : &mut Has
             },
             Occupied(entry) => {
                 let &tag_index = entry.get();
-                    graph.add_edge(tag_index, entry_index, Nil::new());
-                }
+                graph.add_edge(tag_index, entry_index, Nil::new());
             }
         }
     }
+}
 
 fn remove_tags(tags_to_remove : Difference<String, RandomState>, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut MyGraph, entry_index : NodeIndex) {

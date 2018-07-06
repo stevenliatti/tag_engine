@@ -18,6 +18,12 @@ extern crate tag_manager;
 extern crate tag_engine;
 use tag_engine::graph::MyGraph;
 
+use std::path::Path;
+use std::process::exit;
+
+extern crate clap;
+use clap::{App, Arg};
+
 // TODO: check every call to expect()
 
 fn split_root_path(absolute_path : &mut String) -> (String, String) {
@@ -34,32 +40,54 @@ fn write_dot_image(graph : &MyGraph, dot_name : &str, image_name : &str) {
     file.write(graph_dot.as_bytes()).expect("file write");
     let mut output = String::from("-o");
     output.push_str(image_name);
-    let _exec_dot = Command::new("dot").args(&["-Tjpg", output.as_str(), dot_name]).output().expect("exec");
+    let _exec_dot = Command::new("dot").args(&["-Tpng", output.as_str(), dot_name]).output().expect("exec");
 }
 
 fn main() {
-    let absolute_path_root = "/home/stevenliatti/Bureau/a";
-    let (base, _) = split_root_path(&mut absolute_path_root.to_string());
-    let (graph, tags_index, root_index) = tag_engine::graph::make_graph(String::from(absolute_path_root), base.clone());
-    println!("graph {:#?}, tags_index {:#?}", graph, tags_index);
+    let matches = App::new("Tag Engine").version("0.1.0").author("Steven Liatti")
+        .arg(Arg::with_name("path").takes_value(true).required(true).multiple(false))
+        .arg(Arg::with_name("debug").short("-d").long("--debug").required(false).multiple(false))
+        .get_matches();
 
-    let dot_name = "graph.dot";
-    let image_name = "graph.jpg";
-    write_dot_image(&graph, dot_name, image_name);
+    let absolute_path_root = matches.value_of("path").unwrap();
+    let path = Path::new(absolute_path_root);
+    if !path.exists()  {
+        eprintln!("The path doesn't exist");
+        exit(1);
+    }
+    if path.is_relative()  {
+        eprintln!("The path must be absolute");
+        exit(1);
+    }
+    if !path.is_dir()  {
+        eprintln!("The path must point to a directory");
+        exit(1);
+    }
+
+    let (base_path, _) = split_root_path(&mut absolute_path_root.to_string());
+    let (graph, tags_index, root_index) = tag_engine::graph::make_graph(String::from(absolute_path_root), base_path.clone());
     
-    let (tx, rx) = channel();
-    let mut watcher = watcher(tx, Duration::from_secs(1)).expect("watcher");
-    watcher.watch(absolute_path_root, RecursiveMode::Recursive).expect("watcher watch");
+    let dot_name = "graph.dot";
+    let image_name = "graph.png";
+    let debug = matches.is_present("debug");
+    if debug {
+        println!("graph {:#?}, tags_index {:#?}", graph, tags_index);
+        write_dot_image(&graph, dot_name, image_name);
+    }
 
     let graph = Arc::new(Mutex::new(graph));
     let tags_index = Arc::new(Mutex::new(tags_index));
     let main_graph = Arc::clone(&graph);
     let main_tags_index = Arc::clone(&tags_index);
 
-    let base_clone = base.clone();
+    let base_clone = base_path.clone();
     thread::spawn(move || {
         tag_engine::server::server(base_clone, &graph, &tags_index);
     });
+    
+    let (tx, rx) = channel();
+    let mut watcher = watcher(tx, Duration::from_secs(1)).expect("watcher");
+    watcher.watch(absolute_path_root, RecursiveMode::Recursive).expect("watcher watch");
 
     loop {
         match rx.recv() {
@@ -68,8 +96,11 @@ fn main() {
                     Create(_) | Chmod(_) | Remove(_) | Rename(_, _) => {
                         let mut ref_graph = main_graph.lock().unwrap();
                         let mut ref_tags_index = main_tags_index.lock().unwrap();
-                        tag_engine::dispatcher(event, &mut ref_tags_index, &mut ref_graph, root_index, base.clone());
-                        write_dot_image(&ref_graph, dot_name, image_name);
+                        tag_engine::dispatcher(event, &mut ref_tags_index, &mut ref_graph, root_index, base_path.clone());
+                        if debug {
+                            println!("graph {:#?}, tags_index {:#?}", *ref_graph, *ref_tags_index);
+                            write_dot_image(&ref_graph, dot_name, image_name);
+                        }
                     }
                     _ => ()
                 }

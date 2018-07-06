@@ -1,10 +1,9 @@
-
 const AND_OPERATOR_STR : &str = "AND";
 const OR_OPERATOR_STR : &str = "OR";
 
+use self::Operator::*;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operator { AND, OR }
-use self::Operator::*;
 impl Operator {
     fn compare(&self, other : &Operator) -> i8 {
         match (self, other) {

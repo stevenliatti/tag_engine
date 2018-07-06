@@ -2,8 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::prelude::*;
 use std::sync::{Mutex, Arc};
 use std::os::unix::net::{UnixListener, UnixStream};
-
-extern crate walkdir;
+use std::fs::remove_file;
 
 extern crate petgraph;
 use petgraph::graph::NodeIndex;
@@ -15,17 +14,18 @@ use graph::{MyGraph, NodeKind};
 use parse::{Arg, Operator};
 use parse::infix_to_postfix;
 
+const BUFFER_SIZE : usize = 4096;
+const CODE_SIZE : usize = 3;
+const BIND_ADDRESS : &str = "/tmp/tag_engine";
+
 #[derive(Debug, Clone)]
 enum RequestKind {
     Entries(String),
     Tags,
-    RenameTag(String),
-    // AddDirectory(String)
+    RenameTag(String)
 }
 
 fn parse_request(stream : &mut UnixStream) -> Option<RequestKind> {
-    const BUFFER_SIZE : usize = 4096;
-    const CODE_SIZE : usize = 3;
     let mut buffer = [0; BUFFER_SIZE];
     let size = stream.read(&mut buffer).unwrap();
     if size >= CODE_SIZE {
@@ -33,29 +33,22 @@ fn parse_request(stream : &mut UnixStream) -> Option<RequestKind> {
         for i in CODE_SIZE..size {
             request.push(buffer[i] as char);
         }
-        request = request.trim().to_string();
-
-        let mut kind_string = String::new();
+        let mut kind = String::new();
         for i in 0..CODE_SIZE {
-            kind_string.push(buffer[i] as char);
+            kind.push(buffer[i] as char);
         }
-
-        let kind : RequestKind;
-        if kind_string == String::from("0x0") {
-            kind = RequestKind::Entries(request);
+        if kind == String::from("0x0") {
+            Some(RequestKind::Entries(request.trim().to_string()))
         }
-        else if kind_string == String::from("0x1") {
-            kind = RequestKind::Tags;
+        else if kind == String::from("0x1") {
+            Some(RequestKind::Tags)
         }
-        else if kind_string == String::from("0x2") {
-            kind = RequestKind::RenameTag(request);
+        else if kind == String::from("0x2") {
+            Some(RequestKind::RenameTag(request.trim().to_string()))
         }
-        else {
-            return None;
-        }
-        return Some(kind);
+        else { None }
     }
-    None
+    else { None }
 }
 
 fn make_path_vec(graph : &MyGraph, entry : NodeIndex, path_vec : &mut Vec<String>) {
@@ -91,21 +84,9 @@ fn entries(graph : &MyGraph, tag_index : NodeIndex, base_path : String) -> Vec<S
     nodes_names
 }
 
-fn write_response(entries : Vec<String>, stream : &mut UnixStream) {
-    let mut response : Vec<u8> = Vec::new();
-    for name in entries {
-        for byte in name.as_bytes() {
-            response.push(*byte);
-        }
-        response.push('\n' as u8);
-    }
-    stream.write(response.as_slice()).unwrap();
-    stream.flush().unwrap();
-}
-
-fn expression_to_entries(request : String, graph : &MyGraph, tags_index : &HashMap<String, 
+fn expression_to_entries(infix_request : String, graph : &MyGraph, tags_index : &HashMap<String, 
     NodeIndex>, base_path : String) -> Vec<String> {
-    let postfix = infix_to_postfix(request.clone());
+    let postfix = infix_to_postfix(infix_request.clone());
     let mut stack = Vec::new();
     for arg in postfix {
         match arg {
@@ -137,6 +118,18 @@ fn expression_to_entries(request : String, graph : &MyGraph, tags_index : &HashM
         nodes_names.sort();
     }
     nodes_names
+}
+
+fn write_response(entries : Vec<String>, stream : &mut UnixStream) {
+    let mut response : Vec<u8> = Vec::new();
+    for name in entries {
+        for byte in name.as_bytes() {
+            response.push(*byte);
+        }
+        response.push('\n' as u8);
+    }
+    stream.write(response.as_slice()).unwrap();
+    stream.flush().unwrap();
 }
 
 fn request_entries(request : String, graph_thread : &Arc<Mutex<MyGraph>>, 
@@ -195,7 +188,10 @@ fn request_rename_tag(request : String, graph_thread : &Arc<Mutex<MyGraph>>,
 }
 
 pub fn server(base_path : String, graph : &Arc<Mutex<MyGraph>>, tags_index : &Arc<Mutex<HashMap<String, NodeIndex>>>) {
-    let listener = UnixListener::bind("/tmp/tag_engine").unwrap();
+    match remove_file(BIND_ADDRESS) {
+        _ => ()
+    }
+    let listener = UnixListener::bind(BIND_ADDRESS).unwrap();
     let graph_thread = Arc::clone(graph);
     let tags_index_thread = Arc::clone(tags_index);
 
