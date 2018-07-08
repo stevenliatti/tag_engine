@@ -4,7 +4,7 @@ use std::process::Command;
 use std::thread;
 use std::sync::{Mutex, Arc};
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 extern crate petgraph;
 use petgraph::dot::{Dot, Config};
@@ -65,12 +65,16 @@ fn main() {
     }
 
     let (base_path, _) = split_root_path(&mut absolute_path_root.to_string());
+    let now = Instant::now();
     let (graph, tags_index, root_index) = tag_engine::graph::make_graph(String::from(absolute_path_root), base_path.clone());
-    
+    let new_now = Instant::now();
+    let elapsed = new_now.duration_since(now);
+
     let dot_name = "graph.dot";
     let image_name = "graph.png";
     let debug = matches.is_present("debug");
     if debug {
+        println!("{}", elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 * 1e-9);
         println!("graph {:#?}, tags_index {:#?}", graph, tags_index);
         write_dot_image(&graph, dot_name, image_name);
     }
