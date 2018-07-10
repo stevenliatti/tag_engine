@@ -43,8 +43,10 @@ fn write_dot_image(graph : &MyGraph, dot_name : &str, image_name : &str) {
 
 fn main() {
     let matches = App::new("Tag Engine").version("0.1.0").author("Steven Liatti")
-        .arg(Arg::with_name("path").takes_value(true).required(true).multiple(false))
-        .arg(Arg::with_name("debug").short("-d").long("--debug").required(false).multiple(false))
+        .arg(Arg::with_name("path")
+            .takes_value(true).required(true).multiple(false))
+        .arg(Arg::with_name("debug")
+            .short("-d").long("--debug").required(false).multiple(false))
         .get_matches();
 
     let absolute_path_root = matches.value_of("path").unwrap();

@@ -41,8 +41,10 @@ pub fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, Node
             remove_entries(entry_index, graph, tags_index);
         },
         Rename(old_path, new_path) => {
-            let mut old_path = old_path.as_path().to_str().expect("dispatcher, rename, old_path").to_string();
-            let new_path = new_path.as_path().to_str().expect("dispatcher, rename, new_path").to_string();
+            let mut old_path = old_path.as_path().to_str()
+                .expect("dispatcher, rename, old_path").to_string();
+            let new_path = new_path.as_path().to_str()
+                .expect("dispatcher, rename, new_path").to_string();
             let old_local = local_path(&mut old_path.clone(), base.clone());
             let new_local = local_path(&mut new_path.clone(), base.clone());
             println!("rename, old_path : {:?}, new_path : {:?}", old_local, new_local);

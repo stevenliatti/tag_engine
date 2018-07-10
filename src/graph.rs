@@ -145,7 +145,8 @@ pub fn move_entry(root_index : NodeIndex, entry_index : NodeIndex, graph : &mut 
     if parent_index == new_parent_index {
         let mut path_vec : Vec<&str> = new_path.split('/').collect();
         let new_name = path_vec.pop().expect("move_entry, path_vec.pop()").to_string();
-        let node = graph.node_weight_mut(entry_index).expect("move_entry, graph.node_weight_mut");
+        let node = graph.node_weight_mut(entry_index)
+            .expect("move_entry, graph.node_weight_mut");
         node.set_name(new_name);
     }
     else {
@@ -212,7 +213,7 @@ fn entries_to_remove(entry_index : NodeIndex, graph : &MyGraph,
     }
 }
 
-// ----------------------------------------- TAGS -----------------------------------------
+// -------------------------- TAGS --------------------------
 
 pub fn update_tags(path : String,
     tags_index : &mut HashMap<String, NodeIndex>,
