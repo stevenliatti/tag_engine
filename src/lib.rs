@@ -17,7 +17,6 @@ use graph::{MyGraph, local_path, make_subgraph, get_node_index, update_tags, mov
 pub mod server;
 pub mod parse;
 
-// TODO: if create dir by mv, scan subgraph
 pub fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut MyGraph, root_index : NodeIndex, base : String) {
     match event {

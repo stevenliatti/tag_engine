@@ -51,8 +51,6 @@ impl Debug for Node {
     }
 }
 
-// TODO: check every call to expect()
-
 pub fn make_subgraph(root_index : NodeIndex, tags_index : &mut HashMap<String, NodeIndex>,
     graph : &mut MyGraph, local_path : String, base_path : String) {
     let mut path_vec : Vec<&str> = local_path.split('/').collect();
@@ -160,7 +158,6 @@ pub fn move_entry(root_index : NodeIndex, entry_index : NodeIndex, graph : &mut 
     }
 }
 
-// TODO: bug with orphaned tags
 pub fn remove_entries(entry_index : NodeIndex, graph : &mut MyGraph, tags_index : &mut HashMap<String, NodeIndex>) {
     let mut entries_index = Vec::new();
     let mut check_tags_index = Vec::new();

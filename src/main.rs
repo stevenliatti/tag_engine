@@ -24,8 +24,6 @@ use std::process::exit;
 extern crate clap;
 use clap::{App, Arg};
 
-// TODO: check every call to expect()
-
 fn split_root_path(absolute_path : &mut String) -> (String, String) {
     let clone = absolute_path.clone();
     let mut path_vec : Vec<&str> = clone.split('/').collect();
