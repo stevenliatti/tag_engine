@@ -135,7 +135,7 @@ fn write_response(entries : Vec<String>, stream : &mut UnixStream) {
 fn request_entries(request : String, graph_thread : &Arc<Mutex<MyGraph>>, 
     tags_index_thread : &Arc<Mutex<HashMap<String, NodeIndex>>>, base_path : String, 
     stream : &mut UnixStream) {
-    println!("Request for Entries {:?}", request);
+    println!("########## Request for Entries {:?} ##########", request);
     let graph = graph_thread.lock().unwrap();
     let tags_index = tags_index_thread.lock().unwrap();
     let entries = expression_to_entries(request, &graph, &tags_index, base_path);
@@ -149,7 +149,7 @@ fn request_entries(request : String, graph_thread : &Arc<Mutex<MyGraph>>,
 }
 
 fn request_tags(tags_index_thread : &Arc<Mutex<HashMap<String, NodeIndex>>>, stream : &mut UnixStream) {
-    println!("Request for Tags");
+    println!("########## Request for Tags ##########");
     let tags_index = tags_index_thread.lock().unwrap();
     let mut entries : Vec<String> = tags_index.keys().map(|key| key.clone()).collect();
     entries.sort();
@@ -159,7 +159,7 @@ fn request_tags(tags_index_thread : &Arc<Mutex<HashMap<String, NodeIndex>>>, str
 fn request_rename_tag(request : String, graph_thread : &Arc<Mutex<MyGraph>>, 
     tags_index_thread : &Arc<Mutex<HashMap<String, NodeIndex>>>, base_path : String, 
     stream : &mut UnixStream) {
-    println!("Request for RenameTag {:?}", request);
+    println!("########## Request for RenameTag {:?} ##########", request);
     let v : Vec<&str> = request.split(' ').collect();
     if v.len() == 2 {
         let old_name = v[0];

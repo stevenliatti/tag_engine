@@ -102,7 +102,7 @@ fn main() {
                         let mut ref_tags_index = main_tags_index.lock().unwrap();
                         tag_engine::dispatcher(event, &mut ref_tags_index, &mut ref_graph, root_index, base_path.clone());
                         if debug {
-                            println!("graph {:#?}, tags_index {:#?}", *ref_graph, *ref_tags_index);
+                            println!();
                             write_dot_image(&ref_graph, dot_name, image_name);
                         }
                     }

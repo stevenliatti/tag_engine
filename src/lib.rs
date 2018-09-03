@@ -23,20 +23,20 @@ pub fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, Node
         Create(path) => {
             let mut path = path.as_path().to_str().expect("dispatcher, create, path").to_string();
             let local = local_path(&mut path, base.clone());
-            println!("create : {:?}", local);
+            println!("========== CREATE  : {:?} ==========", local);
             make_subgraph(root_index, tags_index, graph, local, base.clone());
         },
         Chmod(path) => {
             let mut path = path.as_path().to_str().expect("dispatcher, chmod, path").to_string();
             let local = local_path(&mut path.clone(), base);
-            println!("chmod : {:?}", local);
+            println!("========== CHMOD : {:?} ==========", local);
             let entry_index = get_node_index(root_index, graph, local);
             update_tags(path, tags_index, graph, entry_index);
         },
         Remove(path) => {
             let mut path = path.as_path().to_str().expect("dispatcher, remove, path").to_string();
             let local = local_path(&mut path.clone(), base);
-            println!("remove : {:?}", local);
+            println!("========== REMOVE : {:?} ==========", local);
             let entry_index = get_node_index(root_index, graph, local);
             remove_entries(entry_index, graph, tags_index);
         },
@@ -47,7 +47,7 @@ pub fn dispatcher(event : DebouncedEvent, tags_index : &mut HashMap<String, Node
                 .expect("dispatcher, rename, new_path").to_string();
             let old_local = local_path(&mut old_path.clone(), base.clone());
             let new_local = local_path(&mut new_path.clone(), base.clone());
-            println!("rename, old_path : {:?}, new_path : {:?}", old_local, new_local);
+            println!("========== RENAME, old_path : {:?}, new_path : {:?} ==========", old_local, new_local);
             let entry_index = get_node_index(root_index, graph, old_local);
             move_entry(root_index, entry_index, graph, new_local);
         }
